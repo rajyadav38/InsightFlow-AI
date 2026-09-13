@@ -1,8 +1,12 @@
 from contextlib import asynccontextmanager
-
 from fastapi import FastAPI
-
 from app.api.auth import router as auth_router
+from app.api.projects import router as projects_router
+from app.api.sources import router as sources_router
+
+from fastapi import UploadFile, File
+from app.services.file_storage import upload_file
+
 from app.db.database import (
     connect_to_mongodb,
     close_mongodb_connection,
@@ -27,8 +31,8 @@ app = FastAPI(
 
 
 app.include_router(auth_router)
-
-
+app.include_router(projects_router)
+app.include_router(sources_router)
 @app.get("/")
 async def root():
     return {
@@ -41,4 +45,20 @@ async def root():
 async def health_check():
     return {
         "status": "healthy",
+    }
+
+@app.post("/test-storage")
+async def test_storage(file: UploadFile = File(...)):
+    file_bytes = await file.read()
+
+    result = upload_file(
+        file_bytes=file_bytes,
+        storage_path=f"test/{file.filename}",
+        content_type=file.content_type or "application/octet-stream",
+    )
+
+    return {
+        "message": "File uploaded successfully",
+        "filename": file.filename,
+        "storage_path": result["storage_path"],
     }

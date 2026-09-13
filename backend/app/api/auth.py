@@ -1,5 +1,5 @@
-from fastapi import APIRouter, HTTPException, status
-
+from app.api.dependencies import get_current_user
+from fastapi import APIRouter, Depends, HTTPException, status
 from app.core.security import (
     create_access_token,
     hash_password,
@@ -101,3 +101,7 @@ async def login(user: UserLogin):
         "token_type": "bearer",
         "user": serialize_user(existing_user),
     }
+
+@router.get("/me")
+async def get_me(current_user=Depends(get_current_user)):
+    return serialize_user(current_user)
