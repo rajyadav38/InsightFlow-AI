@@ -14,15 +14,17 @@ def upload_file(
     storage_path: str,
     content_type: str,
 ) -> dict:
-    response = supabase.storage.from_(
-        settings.SUPABASE_STORAGE_BUCKET
-    ).upload(
-        path=storage_path,
-        file=file_bytes,
-        file_options={
-            "content-type": content_type,
-            "upsert": "false",
-        },
+    response = (
+        supabase.storage
+        .from_(settings.SUPABASE_STORAGE_BUCKET)
+        .upload(
+            path=storage_path,
+            file=file_bytes,
+            file_options={
+                "content-type": content_type,
+                "upsert": "false",
+            },
+        )
     )
 
     return {
@@ -32,6 +34,16 @@ def upload_file(
 
 
 def delete_file(storage_path: str):
-    return supabase.storage.from_(
-        settings.SUPABASE_STORAGE_BUCKET
-    ).remove([storage_path])
+    return (
+        supabase.storage
+        .from_(settings.SUPABASE_STORAGE_BUCKET)
+        .remove([storage_path])
+    )
+
+
+def download_file(storage_path: str) -> bytes:
+    return (
+        supabase.storage
+        .from_(settings.SUPABASE_STORAGE_BUCKET)
+        .download(storage_path)
+    )

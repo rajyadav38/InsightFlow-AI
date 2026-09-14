@@ -1,4 +1,5 @@
 from datetime import datetime
+
 from enum import Enum
 
 from pydantic import BaseModel, Field, HttpUrl
@@ -15,11 +16,13 @@ class SourceType(str, Enum):
 
 class SourceCreate(BaseModel):
     type: SourceType
+
     title: str = Field(
         ...,
         min_length=1,
         max_length=200,
     )
+
     url: HttpUrl | None = None
 
 
@@ -30,6 +33,7 @@ class SourceResponse(BaseModel):
     title: str
     url: str | None
     filename: str | None
+    storage_path: str | None
     status: str
     chunk_count: int
     created_at: datetime

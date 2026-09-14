@@ -1,5 +1,15 @@
+from uuid import uuid4
+
 from bson import ObjectId
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    UploadFile,
+    status,
+)
 
 from app.api.dependencies import get_current_user
 from app.db.database import database
@@ -8,8 +18,11 @@ from app.models.source import (
     serialize_source,
 )
 from app.schemas.source import (
-    SourceCreate,
     SourceResponse,
+)
+from app.services.file_storage import (
+    delete_file,
+    upload_file,
 )
 
 
@@ -52,7 +65,10 @@ async def get_user_project(
 )
 async def create_source(
     project_id: str,
-    source: SourceCreate,
+    type: str = Form(...),
+    title: str = Form(...),
+    url: str | None = Form(None),
+    file: UploadFile | None = File(None),
     current_user=Depends(get_current_user),
 ):
     user_id = str(current_user["_id"])
@@ -62,36 +78,148 @@ async def create_source(
         user_id,
     )
 
-    # URL is required for web-based sources
-    if source.type in {
+    # Validate source type
+    allowed_types = {
+        "pdf",
+        "docx",
+        "txt",
         "blog",
         "article",
         "tweet",
-    } and not source.url:
+    }
+
+    if type not in allowed_types:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid source type",
+        )
+
+    file_types = {
+        "pdf",
+        "docx",
+        "txt",
+    }
+
+    web_types = {
+        "blog",
+        "article",
+        "tweet",
+    }
+
+    # File-based sources require a file
+    if type in file_types and file is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="File is required for this source type",
+        )
+
+    # Web-based sources require a URL
+    if type in web_types and not url:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="URL is required for this source type",
         )
 
+    # Web sources should not receive a file
+    if type in web_types and file is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="File is not allowed for this source type",
+        )
+
+    # File sources should not receive a URL
+    if type in file_types and url:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="URL is not allowed for this source type",
+        )
+
+    source_id = ObjectId()
+
+    filename = None
+    storage_path = None
+
+    # Upload physical file to Supabase
+    if file is not None:
+        filename = file.filename
+
+        if not filename:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Filename is missing",
+            )
+
+        extension = filename.lower().split(".")[-1]
+
+        if extension != type:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"File extension must be .{type}",
+            )
+
+        file_bytes = await file.read()
+
+        if not file_bytes:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Uploaded file is empty",
+            )
+
+        storage_path = (
+            f"users/{user_id}/"
+            f"projects/{project_id}/"
+            f"sources/{source_id}.{extension}"
+        )
+
+        try:
+            upload_file(
+                file_bytes=file_bytes,
+                storage_path=storage_path,
+                content_type=(
+                    file.content_type
+                    or "application/octet-stream"
+                ),
+            )
+
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"File upload failed: {str(exc)}",
+            )
+
+    # Create MongoDB source document
     source_document = create_source_document(
         project_id=project_id,
         user_id=user_id,
-        source_type=source.type.value,
-        title=source.title,
-        url=str(source.url) if source.url else None,
+        source_type=type,
+        title=title,
+        url=url,
+        filename=filename,
+        storage_path=storage_path,
     )
 
-    result = await database.sources.insert_one(
-        source_document
-    )
+    # Use the same ID we generated for the storage path
+    source_document["_id"] = source_id
 
-    created_source = await database.sources.find_one(
-        {
-            "_id": result.inserted_id
-        }
-    )
+    try:
+        await database.sources.insert_one(
+            source_document
+        )
 
-    return serialize_source(created_source)
+    except Exception as exc:
+        # Roll back Supabase upload if MongoDB insert fails
+        if storage_path:
+            try:
+                delete_file(storage_path)
+            except Exception:
+                pass
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create source: {str(exc)}",
+        )
+
+    return serialize_source(source_document)
 
 
 @router.get(
@@ -114,7 +242,10 @@ async def get_sources(
             "project_id": project_id,
             "user_id": user_id,
         }
-    ).sort("created_at", -1)
+    ).sort(
+        "created_at",
+        -1,
+    )
 
     sources = await cursor.to_list(
         length=100
@@ -124,6 +255,7 @@ async def get_sources(
         serialize_source(source)
         for source in sources
     ]
+
 
 @router.delete(
     "/{source_id}",
@@ -147,7 +279,7 @@ async def delete_source(
             detail="Invalid source ID",
         )
 
-    result = await database.sources.delete_one(
+    source = await database.sources.find_one(
         {
             "_id": ObjectId(source_id),
             "project_id": project_id,
@@ -155,8 +287,29 @@ async def delete_source(
         }
     )
 
-    if result.deleted_count == 0:
+    if not source:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Source not found",
         )
+
+    storage_path = source.get("storage_path")
+
+    # Delete actual file from Supabase first
+    if storage_path:
+        try:
+            delete_file(storage_path)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to delete stored file: {str(exc)}",
+            )
+
+    # Delete metadata from MongoDB
+    await database.sources.delete_one(
+        {
+            "_id": ObjectId(source_id),
+            "project_id": project_id,
+            "user_id": user_id,
+        }
+    )

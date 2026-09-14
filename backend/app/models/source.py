@@ -8,6 +8,7 @@ def create_source_document(
     title: str,
     url: str | None = None,
     filename: str | None = None,
+    storage_path: str | None = None,
 ) -> dict:
     now = datetime.now(timezone.utc)
 
@@ -18,6 +19,7 @@ def create_source_document(
         "title": title,
         "url": url,
         "filename": filename,
+        "storage_path": storage_path,
         "status": "pending",
         "chunk_count": 0,
         "created_at": now,
@@ -33,6 +35,7 @@ def serialize_source(source: dict) -> dict:
         "title": source["title"],
         "url": source.get("url"),
         "filename": source.get("filename"),
+        "storage_path": source.get("storage_path"),
         "status": source.get("status", "pending"),
         "chunk_count": source.get("chunk_count", 0),
         "created_at": source["created_at"],
