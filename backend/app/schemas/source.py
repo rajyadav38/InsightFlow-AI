@@ -33,8 +33,13 @@ class SourceResponse(BaseModel):
     title: str
     url: str | None
     filename: str | None
+
     storage_path: str | None
+    processed_storage_path: str | None
+
     status: str
+    character_count: int
     chunk_count: int
+
     created_at: datetime
     updated_at: datetime

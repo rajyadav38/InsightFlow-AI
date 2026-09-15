@@ -5,8 +5,7 @@ from app.api.projects import router as projects_router
 from app.api.sources import router as sources_router
 
 from fastapi import HTTPException
-from app.services.document_parser import extract_text
-from app.services.file_storage import download_file
+
 
 from app.services.file_storage import upload_file
 
@@ -50,25 +49,3 @@ async def health_check():
         "status": "healthy",
     }
 
-@app.get("/test-document/{storage_path:path}")
-async def test_document(storage_path: str):
-
-    try:
-        file_bytes = download_file(storage_path)
-
-        text = extract_text(
-            file_bytes=file_bytes,
-            source_type="txt",
-        )
-
-        return {
-            "message": "Document processed successfully",
-            "storage_path": storage_path,
-            "text": text,
-        }
-
-    except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Document processing failed: {str(exc)}",
-        )

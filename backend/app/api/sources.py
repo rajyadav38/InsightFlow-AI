@@ -1,4 +1,4 @@
-from uuid import uuid4
+from datetime import datetime, timezone
 
 from bson import ObjectId
 from fastapi import (
@@ -17,9 +17,8 @@ from app.models.source import (
     create_source_document,
     serialize_source,
 )
-from app.schemas.source import (
-    SourceResponse,
-)
+from app.schemas.source import SourceResponse
+from app.services.document_processor import process_document
 from app.services.file_storage import (
     delete_file,
     upload_file,
@@ -58,6 +57,10 @@ async def get_user_project(
     return project
 
 
+# ============================================================
+# CREATE SOURCE
+# ============================================================
+
 @router.post(
     "",
     response_model=SourceResponse,
@@ -73,12 +76,13 @@ async def create_source(
 ):
     user_id = str(current_user["_id"])
 
+    # Verify project ownership
     await get_user_project(
         project_id,
         user_id,
     )
 
-    # Validate source type
+    # Allowed source types
     allowed_types = {
         "pdf",
         "docx",
@@ -106,41 +110,46 @@ async def create_source(
         "tweet",
     }
 
-    # File-based sources require a file
+    # File sources require a file
     if type in file_types and file is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="File is required for this source type",
         )
 
-    # Web-based sources require a URL
+    # Web sources require a URL
     if type in web_types and not url:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="URL is required for this source type",
         )
 
-    # Web sources should not receive a file
+    # Web sources cannot contain files
     if type in web_types and file is not None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="File is not allowed for this source type",
         )
 
-    # File sources should not receive a URL
+    # File sources cannot contain URLs
     if type in file_types and url:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="URL is not allowed for this source type",
         )
 
+    # Generate source ID before uploading
     source_id = ObjectId()
 
     filename = None
     storage_path = None
 
-    # Upload physical file to Supabase
+    # ========================================================
+    # UPLOAD FILE TO SUPABASE
+    # ========================================================
+
     if file is not None:
+
         filename = file.filename
 
         if not filename:
@@ -149,7 +158,17 @@ async def create_source(
                 detail="Filename is missing",
             )
 
-        extension = filename.lower().split(".")[-1]
+        # Get file extension
+        if "." not in filename:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="File must have an extension",
+            )
+
+        extension = filename.rsplit(
+            ".",
+            1,
+        )[1].lower()
 
         if extension != type:
             raise HTTPException(
@@ -165,6 +184,7 @@ async def create_source(
                 detail="Uploaded file is empty",
             )
 
+        # Supabase Storage path
         storage_path = (
             f"users/{user_id}/"
             f"projects/{project_id}/"
@@ -187,7 +207,10 @@ async def create_source(
                 detail=f"File upload failed: {str(exc)}",
             )
 
-    # Create MongoDB source document
+    # ========================================================
+    # CREATE MONGODB SOURCE
+    # ========================================================
+
     source_document = create_source_document(
         project_id=project_id,
         user_id=user_id,
@@ -198,16 +221,18 @@ async def create_source(
         storage_path=storage_path,
     )
 
-    # Use the same ID we generated for the storage path
+    # Use the same ID as the Supabase filename
     source_document["_id"] = source_id
 
     try:
+
         await database.sources.insert_one(
             source_document
         )
 
     except Exception as exc:
-        # Roll back Supabase upload if MongoDB insert fails
+
+        # Roll back Supabase upload
         if storage_path:
             try:
                 delete_file(storage_path)
@@ -219,8 +244,14 @@ async def create_source(
             detail=f"Failed to create source: {str(exc)}",
         )
 
-    return serialize_source(source_document)
+    return serialize_source(
+        source_document
+    )
 
+
+# ============================================================
+# GET SOURCES
+# ============================================================
 
 @router.get(
     "",
@@ -232,6 +263,7 @@ async def get_sources(
 ):
     user_id = str(current_user["_id"])
 
+    # Verify project ownership
     await get_user_project(
         project_id,
         user_id,
@@ -257,28 +289,35 @@ async def get_sources(
     ]
 
 
-@router.delete(
-    "/{source_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
+# ============================================================
+# PROCESS DOCUMENT
+# ============================================================
+
+@router.post(
+    "/{source_id}/process",
+    response_model=SourceResponse,
 )
-async def delete_source(
+async def process_source(
     project_id: str,
     source_id: str,
     current_user=Depends(get_current_user),
 ):
     user_id = str(current_user["_id"])
 
+    # Verify project ownership
     await get_user_project(
         project_id,
         user_id,
     )
 
+    # Validate source ID
     if not ObjectId.is_valid(source_id):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid source ID",
         )
 
+    # Find source
     source = await database.sources.find_one(
         {
             "_id": ObjectId(source_id),
@@ -293,19 +332,233 @@ async def delete_source(
             detail="Source not found",
         )
 
-    storage_path = source.get("storage_path")
+    # Only file sources can be processed
+    if source["type"] not in {
+        "pdf",
+        "docx",
+        "txt",
+    }:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Only PDF, DOCX, and TXT "
+                "sources can be processed"
+            ),
+        )
 
-    # Delete actual file from Supabase first
+    storage_path = source.get(
+        "storage_path"
+    )
+
+    if not storage_path:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Source does not have a stored file",
+        )
+
+    # Prevent unnecessary re-processing
+    if source.get("status") == "processed":
+        return serialize_source(source)
+
+    # ========================================================
+    # MARK SOURCE AS PROCESSING
+    # ========================================================
+
+    await database.sources.update_one(
+        {
+            "_id": ObjectId(source_id),
+            "project_id": project_id,
+            "user_id": user_id,
+        },
+        {
+            "$set": {
+                "status": "processing",
+                "updated_at": datetime.now(
+                    timezone.utc
+                ),
+            }
+        },
+    )
+
+    # Where extracted text will be stored
+    processed_storage_path = (
+        f"users/{user_id}/"
+        f"projects/{project_id}/"
+        f"processed/{source_id}.txt"
+    )
+
+    try:
+
+        # ====================================================
+        # PROCESS DOCUMENT
+        # ====================================================
+
+        result = process_document(
+            storage_path=storage_path,
+            source_type=source["type"],
+            processed_storage_path=processed_storage_path,
+        )
+
+        # ====================================================
+        # UPDATE MONGODB
+        # ====================================================
+
+        await database.sources.update_one(
+            {
+                "_id": ObjectId(source_id),
+                "project_id": project_id,
+                "user_id": user_id,
+            },
+            {
+                "$set": {
+                    "processed_storage_path": (
+                        result[
+                            "processed_storage_path"
+                        ]
+                    ),
+                    "character_count": (
+                        result[
+                            "character_count"
+                        ]
+                    ),
+                    "status": "processed",
+                    "updated_at": datetime.now(
+                        timezone.utc
+                    ),
+                }
+            },
+        )
+
+    except Exception as exc:
+
+        # Mark processing as failed
+        await database.sources.update_one(
+            {
+                "_id": ObjectId(source_id),
+                "project_id": project_id,
+                "user_id": user_id,
+            },
+            {
+                "$set": {
+                    "status": "failed",
+                    "updated_at": datetime.now(
+                        timezone.utc
+                    ),
+                }
+            },
+        )
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=(
+                f"Document processing failed: {str(exc)}"
+            ),
+        )
+
+    # Get updated source
+    updated_source = await database.sources.find_one(
+        {
+            "_id": ObjectId(source_id),
+            "project_id": project_id,
+            "user_id": user_id,
+        }
+    )
+
+    return serialize_source(
+        updated_source
+    )
+
+
+# ============================================================
+# DELETE SOURCE
+# ============================================================
+
+@router.delete(
+    "/{source_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_source(
+    project_id: str,
+    source_id: str,
+    current_user=Depends(get_current_user),
+):
+    user_id = str(current_user["_id"])
+
+    # Verify project ownership
+    await get_user_project(
+        project_id,
+        user_id,
+    )
+
+    # Validate source ID
+    if not ObjectId.is_valid(source_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid source ID",
+        )
+
+    # Find source
+    source = await database.sources.find_one(
+        {
+            "_id": ObjectId(source_id),
+            "project_id": project_id,
+            "user_id": user_id,
+        }
+    )
+
+    if not source:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Source not found",
+        )
+
+    # ========================================================
+    # DELETE ORIGINAL FILE
+    # ========================================================
+
+    storage_path = source.get(
+        "storage_path"
+    )
+
     if storage_path:
+
         try:
-            delete_file(storage_path)
+            delete_file(
+                storage_path
+            )
+
         except Exception as exc:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to delete stored file: {str(exc)}",
+                detail=(
+                    f"Failed to delete stored file: {str(exc)}"
+                ),
             )
 
-    # Delete metadata from MongoDB
+    # ========================================================
+    # DELETE PROCESSED TEXT
+    # ========================================================
+
+    processed_storage_path = source.get(
+        "processed_storage_path"
+    )
+
+    if processed_storage_path:
+
+        try:
+            delete_file(
+                processed_storage_path
+            )
+
+        except Exception:
+            # Don't block MongoDB cleanup if
+            # processed text is already missing.
+            pass
+
+    # ========================================================
+    # DELETE MONGODB METADATA
+    # ========================================================
+
     await database.sources.delete_one(
         {
             "_id": ObjectId(source_id),

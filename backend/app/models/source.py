@@ -19,9 +19,19 @@ def create_source_document(
         "title": title,
         "url": url,
         "filename": filename,
+
+        # Original file in Supabase
         "storage_path": storage_path,
+
+        # Extracted text in Supabase
+        "processed_storage_path": None,
+
         "status": "pending",
+
+        # Will be populated after processing
+        "character_count": 0,
         "chunk_count": 0,
+
         "created_at": now,
         "updated_at": now,
     }
@@ -35,9 +45,22 @@ def serialize_source(source: dict) -> dict:
         "title": source["title"],
         "url": source.get("url"),
         "filename": source.get("filename"),
+
         "storage_path": source.get("storage_path"),
+        "processed_storage_path": source.get(
+            "processed_storage_path"
+        ),
+
         "status": source.get("status", "pending"),
-        "chunk_count": source.get("chunk_count", 0),
+        "character_count": source.get(
+            "character_count",
+            0,
+        ),
+        "chunk_count": source.get(
+            "chunk_count",
+            0,
+        ),
+
         "created_at": source["created_at"],
         "updated_at": source["updated_at"],
     }
