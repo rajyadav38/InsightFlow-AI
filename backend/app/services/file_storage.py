@@ -13,7 +13,9 @@ def upload_file(
     file_bytes: bytes,
     storage_path: str,
     content_type: str,
+    upsert: bool = False,
 ) -> dict:
+
     response = (
         supabase.storage
         .from_(settings.SUPABASE_STORAGE_BUCKET)
@@ -22,7 +24,7 @@ def upload_file(
             file=file_bytes,
             file_options={
                 "content-type": content_type,
-                "upsert": "false",
+                "upsert": "true" if upsert else "false",
             },
         )
     )

@@ -31,6 +31,10 @@ router = APIRouter(
 )
 
 
+# ============================================================
+# GET USER PROJECT
+# ============================================================
+
 async def get_user_project(
     project_id: str,
     user_id: str,
@@ -356,8 +360,20 @@ async def process_source(
             detail="Source does not have a stored file",
         )
 
-    # Prevent unnecessary re-processing
-    if source.get("status") == "processed":
+    # ========================================================
+    # PREVENT UNNECESSARY RE-PROCESSING
+    # ========================================================
+    #
+    # A source is considered completely processed only when
+    # it has both processed text and chunks.
+    #
+    # Older sources may have status="processed" but
+    # chunk_count=0, so they must be processed again.
+
+    if (
+        source.get("status") == "processed"
+        and source.get("chunk_count", 0) > 0
+    ):
         return serialize_source(source)
 
     # ========================================================
@@ -421,6 +437,9 @@ async def process_source(
                             "character_count"
                         ]
                     ),
+                    "chunk_count": result[
+                        "chunk_count"
+                    ],
                     "status": "processed",
                     "updated_at": datetime.now(
                         timezone.utc
@@ -455,7 +474,10 @@ async def process_source(
             ),
         )
 
-    # Get updated source
+    # ========================================================
+    # GET UPDATED SOURCE
+    # ========================================================
+
     updated_source = await database.sources.find_one(
         {
             "_id": ObjectId(source_id),

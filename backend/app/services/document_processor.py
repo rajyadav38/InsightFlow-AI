@@ -3,6 +3,7 @@ from app.services.file_storage import (
     download_file,
     upload_file,
 )
+from app.services.text_chunker import chunk_text
 
 
 def process_document(
@@ -31,18 +32,23 @@ def process_document(
         )
 
     # Convert extracted text to bytes
-    text_bytes = text.encode(
-        "utf-8"
-    )
+    text_bytes = text.encode("utf-8")
 
-    # Store extracted text in Supabase
+    # Store processed text in Supabase.
+    # upsert=True allows safe re-processing.
     upload_file(
         file_bytes=text_bytes,
         storage_path=processed_storage_path,
         content_type="text/plain; charset=utf-8",
+        upsert=True,
     )
+
+    # Split extracted text into chunks
+    chunks = chunk_text(text)
 
     return {
         "processed_storage_path": processed_storage_path,
         "character_count": len(text),
+        "chunk_count": len(chunks),
+        "chunks": chunks,
     }
