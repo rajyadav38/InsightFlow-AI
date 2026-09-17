@@ -18,11 +18,18 @@ from app.models.source import (
     serialize_source,
 )
 from app.schemas.source import SourceResponse
-from app.services.document_processor import process_document
+
+from app.services.document_processor import (
+    process_document,
+    sync_processed_document_to_vector_store,
+)
+
 from app.services.file_storage import (
     delete_file,
     upload_file,
 )
+
+from app.services.vector_store import has_source_chunks
 
 
 router = APIRouter(
@@ -361,20 +368,85 @@ async def process_source(
         )
 
     # ========================================================
-    # PREVENT UNNECESSARY RE-PROCESSING
+    # CHECK EXISTING PROCESSING
     # ========================================================
-    #
-    # A source is considered completely processed only when
-    # it has both processed text and chunks.
-    #
-    # Older sources may have status="processed" but
-    # chunk_count=0, so they must be processed again.
 
-    if (
-        source.get("status") == "processed"
-        and source.get("chunk_count", 0) > 0
-    ):
-        return serialize_source(source)
+    if source.get("status") == "processed":
+
+        # Check if chunks already exist in ChromaDB
+        chunks_exist = has_source_chunks(
+            source_id=source_id
+        )
+
+        # Everything is already synchronized
+        if chunks_exist:
+            return serialize_source(source)
+
+        # ====================================================
+        # SOURCE WAS PROCESSED BUT CHROMADB IS MISSING CHUNKS
+        # ====================================================
+
+        processed_storage_path = source.get(
+            "processed_storage_path"
+        )
+
+        if not processed_storage_path:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "Source is marked as processed but "
+                    "processed text is missing"
+                ),
+            )
+
+        try:
+
+            result = sync_processed_document_to_vector_store(
+                processed_storage_path=processed_storage_path,
+                source_id=source_id,
+                project_id=project_id,
+            )
+
+            await database.sources.update_one(
+                {
+                    "_id": ObjectId(source_id),
+                    "project_id": project_id,
+                    "user_id": user_id,
+                },
+                {
+                    "$set": {
+                        "chunk_count": result[
+                            "chunk_count"
+                        ],
+                        "status": "processed",
+                        "updated_at": datetime.now(
+                            timezone.utc
+                        ),
+                    }
+                },
+            )
+
+        except Exception as exc:
+
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=(
+                    "Failed to synchronize document "
+                    f"with ChromaDB: {str(exc)}"
+                ),
+            )
+
+        updated_source = await database.sources.find_one(
+            {
+                "_id": ObjectId(source_id),
+                "project_id": project_id,
+                "user_id": user_id,
+            }
+        )
+
+        return serialize_source(
+            updated_source
+        )
 
     # ========================================================
     # MARK SOURCE AS PROCESSING
@@ -413,6 +485,8 @@ async def process_source(
             storage_path=storage_path,
             source_type=source["type"],
             processed_storage_path=processed_storage_path,
+            source_id=source_id,
+            project_id=project_id,
         )
 
         # ====================================================
@@ -437,9 +511,11 @@ async def process_source(
                             "character_count"
                         ]
                     ),
-                    "chunk_count": result[
-                        "chunk_count"
-                    ],
+                    "chunk_count": (
+                        result[
+                            "chunk_count"
+                        ]
+                    ),
                     "status": "processed",
                     "updated_at": datetime.now(
                         timezone.utc
