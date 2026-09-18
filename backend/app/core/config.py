@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     SUPABASE_SERVICE_ROLE_KEY: str
     SUPABASE_STORAGE_BUCKET: str = "insightflow-sources"
 
+    GEMINI_API_KEY: str
+    GEMINI_MODEL: str = "gemini-3.8-flash"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

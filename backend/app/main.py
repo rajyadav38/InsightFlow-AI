@@ -3,7 +3,8 @@ from fastapi import FastAPI
 from app.api.auth import router as auth_router
 from app.api.projects import router as projects_router
 from app.api.sources import router as sources_router
-
+from app.api import chat
+from app.api import conversations
 from fastapi import HTTPException
 
 
@@ -35,6 +36,8 @@ app = FastAPI(
 app.include_router(auth_router)
 app.include_router(projects_router)
 app.include_router(sources_router)
+app.include_router(chat.router)
+app.include_router(conversations.router)
 @app.get("/")
 async def root():
     return {
