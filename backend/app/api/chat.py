@@ -16,6 +16,10 @@ router = APIRouter(
 )
 
 
+# ============================================================
+# CHAT WITH PROJECT
+# ============================================================
+
 @router.post(
     "/{project_id}/chat",
     response_model=ChatResponse,
@@ -61,7 +65,9 @@ async def chat_with_project(
     # VALIDATE CONVERSATION ID
     # ========================================================
 
-    if not ObjectId.is_valid(request.conversation_id):
+    if not ObjectId.is_valid(
+        request.conversation_id
+    ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid conversation ID",
@@ -86,6 +92,41 @@ async def chat_with_project(
         )
 
     # ========================================================
+    # GET RECENT CONVERSATION HISTORY
+    # ========================================================
+    #
+    # IMPORTANT:
+    # We fetch this BEFORE saving the current user message.
+    #
+    # This prevents the current question from appearing twice
+    # in the conversation context.
+    # ========================================================
+
+    history_cursor = database.messages.find(
+        {
+            "conversation_id": request.conversation_id,
+        }
+    ).sort(
+        "created_at",
+        -1,
+    )
+
+    history_messages = await history_cursor.to_list(
+        length=6
+    )
+
+    # Reverse so messages are in chronological order
+    history_messages.reverse()
+
+    conversation_history = [
+        {
+            "role": message["role"],
+            "content": message["content"],
+        }
+        for message in history_messages
+    ]
+
+    # ========================================================
     # SAVE USER MESSAGE
     # ========================================================
 
@@ -104,20 +145,26 @@ async def chat_with_project(
     # ========================================================
 
     try:
+
         result = await answer_question(
             question=request.question,
             project_id=project_id,
+            conversation_history=conversation_history,
             n_results=5,
         )
 
     except ValueError as error:
+
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(error),
         )
 
     except Exception as error:
-        print(f"❌ RAG error: {error}")
+
+        print(
+            f"❌ RAG error: {error}"
+        )
 
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
