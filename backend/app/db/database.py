@@ -54,6 +54,14 @@ async def connect_to_mongodb():
         ]
     )
 
+    await database.generated_content.create_index(
+        [("project_id", 1), ("created_at", -1)]
+    )
+
+    await database.generated_content.create_index(
+        [("user_id", 1), ("created_at", -1)]
+    )
+
     print("✅ Connected to MongoDB Atlas")
 
 

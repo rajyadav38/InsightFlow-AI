@@ -191,8 +191,10 @@ ANSWER:
 
     sources = []
 
-    for chunk in chunks:
-
+    for index, chunk in enumerate(
+        chunks,
+        start=1,
+    ):
         source_id = chunk["metadata"]["source_id"]
 
         metadata = source_metadata.get(
@@ -205,8 +207,10 @@ ANSWER:
         sources.append(
             {
                 **metadata,
+                "citation_index": index,
                 "chunk_index": chunk["metadata"]["chunk_index"],
                 "distance": chunk["distance"],
+                "excerpt": chunk["text"],
             }
         )
 

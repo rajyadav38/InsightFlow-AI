@@ -6,7 +6,8 @@ from app.api.sources import router as sources_router
 from app.api import chat
 from app.api import conversations
 from fastapi import HTTPException
-
+from app.api import generation
+from app.api import generated
 
 from app.services.file_storage import upload_file
 
@@ -38,6 +39,8 @@ app.include_router(projects_router)
 app.include_router(sources_router)
 app.include_router(chat.router)
 app.include_router(conversations.router)
+app.include_router(generation.router)
+app.include_router(generated.router)
 @app.get("/")
 async def root():
     return {
