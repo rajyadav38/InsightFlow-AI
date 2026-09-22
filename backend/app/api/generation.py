@@ -77,12 +77,25 @@ async def generate_project_content(
             project_id=project_id,
             n_results=5,
         )
+        
+        if not result["content"]:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    "No relevant information was found "
+                    "in the provided sources to generate "
+                    "this content."
+                ),
+            )
 
     except ValueError as error:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(error),
         )
+    
+    except HTTPException:
+        raise
 
     except Exception as error:
         print(

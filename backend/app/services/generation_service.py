@@ -41,11 +41,7 @@ async def generate_content(
 
     if not chunks:
         return {
-            "content": (
-                "I could not find enough relevant "
-                "information in the provided sources "
-                "to generate this content."
-            ),
+            "content": None,
             "sources": [],
         }
 
