@@ -7,6 +7,7 @@ from langgraph.graph import (
 from app.agents.nodes import (
     fact_checker_node,
     retriever_node,
+    route_after_fact_check,
     supervisor_node,
     writer_node,
 )
@@ -67,10 +68,14 @@ def build_generation_graph():
         "fact_checker",
     )
 
-    graph.add_edge(
+    graph.add_conditional_edges(
         "fact_checker",
-        END,
-    )
+        route_after_fact_check,
+        {
+            "revise": "writer",
+            "end": END,
+        },
+    )   
 
     return graph.compile()
 

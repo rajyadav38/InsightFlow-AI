@@ -58,8 +58,8 @@ def writer_node(
     state: GenerationState,
 ) -> GenerationState:
     """
-    Generate content using only the
-    retrieved source context.
+    Generate or revise content using only
+    the retrieved source context.
     """
 
     chunks = state.get(
@@ -78,17 +78,55 @@ def writer_node(
         or "No additional instructions."
     )
 
+    previous_content = state.get(
+        "generated_content",
+        "",
+    )
+
+    fact_check_feedback = state.get(
+        "fact_check_feedback",
+        "",
+    )
+
+    revision_count = state.get(
+        "revision_count",
+        0,
+    )
+
+    revision_instructions = ""
+
+    if previous_content and fact_check_feedback:
+        revision_instructions = f"""
+This is revision number {revision_count}.
+
+The previous version was checked by the
+Fact Checker and needs improvement.
+
+FACT CHECKER FEEDBACK:
+
+{fact_check_feedback}
+
+PREVIOUS CONTENT:
+
+{previous_content}
+
+Revise the previous content to fix the
+identified problems.
+
+Do not introduce information that is not
+supported by the source context.
+"""
+
     prompt = f"""
-You are InsightFlow AI, an AI content generation
-assistant.
+You are the Writer Agent for InsightFlow AI.
 
 Generate {state["content_type"]} content using ONLY
 the information provided in the source context.
 
 Do not use outside knowledge.
 
-Keep the generated content factually grounded
-in the provided sources.
+Keep every factual claim grounded in the
+provided sources.
 
 ---------------- TOPIC ----------------
 
@@ -106,9 +144,13 @@ in the provided sources.
 
 {state["context"]}
 
----------------- END SOURCE CONTEXT ----------------
+---------------- REVISION ----------------
 
-Return ONLY the generated content.
+{revision_instructions}
+
+---------------- END CONTEXT ----------------
+
+Return ONLY the final content.
 """
 
     content = generate_text(prompt)
@@ -116,6 +158,9 @@ Return ONLY the generated content.
     return {
         **state,
         "generated_content": content,
+        "revision_count": revision_count + (
+            1 if previous_content else 0
+        ),
     }
 
 
@@ -123,8 +168,8 @@ def fact_checker_node(
     state: GenerationState,
 ) -> GenerationState:
     """
-    Check whether the generated content
-    is supported by the retrieved context.
+    Check whether generated content is supported
+    by the retrieved source context.
     """
 
     generated_content = state.get(
@@ -136,20 +181,33 @@ def fact_checker_node(
         return {
             **state,
             "fact_check_result": "NO_CONTENT",
+            "fact_check_feedback": "",
         }
 
     prompt = f"""
-You are the Fact Checker for InsightFlow AI.
+You are the Fact Checker Agent for InsightFlow AI.
 
-Check whether the generated content is supported
-by the provided source context.
+Check the generated content against ONLY the
+provided source context.
 
 Do not use outside knowledge.
 
-Return exactly one of:
+Determine whether the factual claims in the
+generated content are supported by the sources.
 
-PASS
-FAIL
+Return your response in exactly this format:
+
+RESULT: PASS
+
+FEEDBACK: The content is fully supported by
+the provided sources.
+
+OR:
+
+RESULT: FAIL
+
+FEEDBACK: Explain specifically which claims
+are unsupported, inaccurate, or need revision.
 
 ---------------- SOURCE CONTEXT ----------------
 
@@ -159,15 +217,54 @@ FAIL
 
 {generated_content}
 
----------------- RESULT ----------------
+---------------- END ----------------
 """
 
     result = generate_text(prompt).strip()
 
-    if result not in {"PASS", "FAIL"}:
-        result = "FAIL"
+    if "RESULT: PASS" in result:
+        fact_check_result = "PASS"
+    else:
+        fact_check_result = "FAIL"
+
+    feedback = result
 
     return {
         **state,
-        "fact_check_result": result,
+        "fact_check_result": fact_check_result,
+        "fact_check_feedback": feedback,
     }
+    
+def route_after_fact_check(
+    state: GenerationState,
+) -> str:
+    """
+    Decide whether the workflow should finish
+    or send the content back to the Writer.
+    """
+
+    result = state.get(
+        "fact_check_result",
+        "",
+    )
+
+    revision_count = state.get(
+        "revision_count",
+        0,
+    )
+
+    max_revisions = state.get(
+        "max_revisions",
+        2,
+    )
+
+    if result == "PASS":
+        return "end"
+
+    if result == "NO_CONTENT":
+        return "end"
+
+    if revision_count >= max_revisions:
+        return "end"
+
+    return "revise"

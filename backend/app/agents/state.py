@@ -13,6 +13,11 @@ class GenerationState(TypedDict, total=False):
     context: str
 
     generated_content: str
+
     fact_check_result: str
+    fact_check_feedback: str
+
+    revision_count: int
+    max_revisions: int
 
     sources: list[dict]
