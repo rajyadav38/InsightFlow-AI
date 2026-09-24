@@ -49,5 +49,9 @@ class GenerateResponse(BaseModel):
     instructions: str | None
     content: str
     sources: list[GeneratedSource]
+
+    fact_check_result: str
+    revision_count: int
+
     created_at: datetime
     updated_at: datetime

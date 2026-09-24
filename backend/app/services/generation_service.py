@@ -1,7 +1,5 @@
+from app.agents.graph import generation_graph
 from app.services.citation_service import resolve_sources
-from app.services.context_builder import build_context
-from app.services.llm_service import generate_text
-from app.services.retrieval_service import retrieve_relevant_chunks
 
 
 SUPPORTED_TYPES = {
@@ -29,71 +27,51 @@ async def generate_content(
     if not topic or not topic.strip():
         raise ValueError(
             "Topic cannot be empty"
+        )
+
+    # Initial state for LangGraph
+    initial_state = {
+        "project_id": project_id,
+        "content_type": content_type,
+        "topic": topic.strip(),
+        "tone": tone,
+        "instructions": instructions,
+        "revision_count": 0,
+        "max_revisions": 2,
+    }
+
+    # Run the agentic generation workflow
+    result = generation_graph.invoke(
+        initial_state
     )
 
-    retrieval_query = topic.strip()
-
-    chunks = retrieve_relevant_chunks(
-        query=retrieval_query,
-        project_id=project_id,
-        n_results=n_results,
-    )
-
-    if not chunks:
+    # No relevant source information
+    if not result.get("retrieved_chunks"):
         return {
             "content": None,
             "sources": [],
+            "fact_check_result": "NO_CONTENT",
+            "revision_count": 0,
         }
 
-    context = build_context(chunks)
-
-    instructions_text = (
-        instructions.strip()
-        if instructions
-        else "No additional instructions."
+    content = result.get(
+        "generated_content",
+        "",
     )
 
-    prompt = f"""
-You are InsightFlow AI, an AI content generation
-assistant.
+    if not content:
+        return {
+    "content": None,
+    "sources": [],
+    "fact_check_result": "NO_CONTENT",
+    "revision_count": 0,
+}
 
-Generate {content_type} content using ONLY the
-information provided in the source context.
-
-Do not use outside knowledge.
-
-The generated content must remain factually
-grounded in the provided sources.
-
----------------- CONTENT TYPE ----------------
-
-{content_type}
-
----------------- TOPIC ----------------
-
-{topic}
-
----------------- TONE ----------------
-
-{tone}
-
----------------- ADDITIONAL INSTRUCTIONS ----------------
-
-{instructions_text}
-
----------------- SOURCE CONTEXT ----------------
-
-{context}
-
----------------- END SOURCE CONTEXT ----------------
-
-Generate the requested content now.
-
-Return ONLY the generated content.
-"""
-
-    content = generate_text(
-        prompt
+    # Resolve ChromaDB source IDs
+    # into MongoDB source metadata
+    chunks = result.get(
+        "retrieved_chunks",
+        [],
     )
 
     source_ids = [
@@ -134,4 +112,12 @@ Return ONLY the generated content.
     return {
     "content": content,
     "sources": sources,
+    "fact_check_result": result.get(
+        "fact_check_result",
+        "PASS",
+    ),
+    "revision_count": result.get(
+        "revision_count",
+        0,
+    ),
 }

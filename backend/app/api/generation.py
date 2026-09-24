@@ -120,6 +120,8 @@ async def generate_project_content(
         instructions=request.instructions,
         content=result["content"],
         sources=result["sources"],
+        fact_check_result=result["fact_check_result"],
+        revision_count=result["revision_count"],
     )
 
     inserted = await database.generated_content.insert_one(
