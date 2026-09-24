@@ -61,11 +61,11 @@ async def generate_content(
 
     if not content:
         return {
-    "content": None,
-    "sources": [],
-    "fact_check_result": "NO_CONTENT",
-    "revision_count": 0,
-}
+            "content": None,
+            "sources": [],
+            "fact_check_result": "NO_CONTENT",
+            "revision_count": 0,
+        }
 
     # Resolve ChromaDB source IDs
     # into MongoDB source metadata
