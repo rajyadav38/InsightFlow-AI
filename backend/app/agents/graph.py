@@ -6,8 +6,11 @@ from langgraph.graph import (
 
 from app.agents.nodes import (
     fact_checker_node,
+    research_node,
     retriever_node,
     route_after_fact_check,
+    route_after_supervisor,
+    route_after_retriever,
     supervisor_node,
     writer_node,
 )
@@ -33,6 +36,11 @@ def build_generation_graph():
         "retriever",
         retriever_node,
     )
+    
+    graph.add_node(
+        "research",
+        research_node,
+    )
 
     graph.add_node(
         "writer",
@@ -53,19 +61,34 @@ def build_generation_graph():
         "supervisor",
     )
 
-    graph.add_edge(
+    graph.add_conditional_edges(
         "supervisor",
-        "retriever",
+        route_after_supervisor,
+        {
+            "generation": "retriever",
+            "research": "retriever",
+            "fact_check": "retriever",
+        },
     )
+    
 
     graph.add_edge(
-        "retriever",
+        "research",
         "writer",
     )
 
     graph.add_edge(
         "writer",
         "fact_checker",
+    )
+    
+    graph.add_conditional_edges(
+        "retriever",
+        route_after_retriever,
+        {
+            "research": "research",
+            "writer": "writer",
+        },
     )
 
     graph.add_conditional_edges(

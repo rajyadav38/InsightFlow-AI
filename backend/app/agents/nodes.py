@@ -10,18 +10,109 @@ def supervisor_node(
     state: GenerationState,
 ) -> GenerationState:
     """
-    Supervisor prepares and validates
-    the generation workflow.
+    Supervisor analyzes the user request
+    and determines the workflow to execute.
     """
 
-    topic = state.get("topic", "").strip()
+    topic = state.get(
+        "topic",
+        "",
+    ).strip()
+
+    instructions = (
+        state.get("instructions")
+        or ""
+    ).strip()
+
+    content_type = state.get(
+        "content_type",
+        "",
+    ).strip()
 
     if not topic:
         raise ValueError(
             "Topic cannot be empty"
         )
 
-    return state
+    prompt = f"""
+You are the Supervisor Agent for InsightFlow AI.
+
+Analyze the user's request and determine which
+workflow should handle it.
+
+Available workflows:
+
+1. generation
+   Use this when the user wants content created
+   from the available sources.
+
+2. research
+   Use this when the user explicitly wants research,
+   investigation, comparison, or a deeper analysis
+   across sources.
+
+3. fact_check
+   Use this when the user wants to verify whether
+   claims or information are supported by the sources.
+
+Return ONLY one of these exact values:
+
+generation
+research
+fact_check
+
+---------------- CONTENT TYPE ----------------
+
+{content_type}
+
+---------------- TOPIC ----------------
+
+{topic}
+
+---------------- INSTRUCTIONS ----------------
+
+{instructions}
+
+---------------- WORKFLOW ----------------
+"""
+
+    workflow = generate_text(
+        prompt
+    ).strip().lower()
+
+    allowed_workflows = {
+        "generation",
+        "research",
+        "fact_check",
+    }
+
+    if workflow not in allowed_workflows:
+        workflow = "generation"
+
+    return {
+        **state,
+        "workflow": workflow,
+    }
+    
+def route_after_supervisor(
+    state: GenerationState,
+) -> str:
+    """
+    Route the workflow based on the Supervisor's decision.
+    """
+
+    workflow = state.get(
+        "workflow",
+        "generation",
+    )
+
+    if workflow == "research":
+        return "research"
+
+    if workflow == "fact_check":
+        return "fact_check"
+
+    return "generation"
 
 
 def retriever_node(
@@ -51,6 +142,107 @@ def retriever_node(
         **state,
         "retrieved_chunks": chunks,
         "context": context,
+    }
+
+def research_node(
+    state: GenerationState,
+) -> GenerationState:
+    """
+    Research Agent analyzes retrieved source chunks
+    and creates a structured research brief.
+    """
+
+    chunks = state.get(
+        "retrieved_chunks",
+        [],
+    )
+
+    if not chunks:
+        return {
+            **state,
+            "research_brief": "",
+            "research_findings": [],
+        }
+
+    context = state.get(
+        "context",
+        "",
+    )
+
+    prompt = f"""
+You are the Research Agent for InsightFlow AI.
+
+Your task is to analyze the provided source material
+and create a structured research brief.
+
+Use ONLY the information contained in the source
+context.
+
+Do not use outside knowledge.
+
+Do not invent facts.
+
+Identify the most important findings that directly
+help answer the user's request.
+
+For each finding:
+- State the finding clearly.
+- Explain the supporting evidence.
+- Keep the finding grounded in the provided sources.
+
+Then provide a concise overall research brief.
+
+---------------- USER TOPIC ----------------
+
+{state["topic"]}
+
+---------------- USER INSTRUCTIONS ----------------
+
+{state.get("instructions") or "No additional instructions."}
+
+---------------- SOURCE CONTEXT ----------------
+
+{context}
+
+---------------- END SOURCE CONTEXT ----------------
+
+Return the response in this format:
+
+RESEARCH FINDINGS:
+
+1. <finding>
+   Evidence: <supporting evidence>
+
+2. <finding>
+   Evidence: <supporting evidence>
+
+3. <finding>
+   Evidence: <supporting evidence>
+
+RESEARCH BRIEF:
+
+<concise synthesis of the findings>
+"""
+
+    research_result = generate_text(
+        prompt
+    ).strip()
+
+    if not research_result:
+        return {
+            **state,
+            "research_brief": "",
+            "research_findings": [],
+        }
+
+    # Keep the complete structured research output
+    # available to the Writer Agent.
+    return {
+        **state,
+        "research_brief": research_result,
+        "research_findings": [
+            research_result,
+        ],
     }
 
 
@@ -87,6 +279,11 @@ def writer_node(
         "fact_check_feedback",
         "",
     )
+    
+    research_brief = state.get(
+    "research_brief",
+    "",
+    )
 
     revision_count = state.get(
         "revision_count",
@@ -116,6 +313,16 @@ identified problems.
 Do not introduce information that is not
 supported by the source context.
 """
+    research_section = ""
+
+    if research_brief:
+        research_section = f"""
+    ---------------- RESEARCH BRIEF ----------------
+
+    {research_brief}
+
+    ---------------- END RESEARCH BRIEF ----------------
+    """
 
     prompt = f"""
 You are the Writer Agent for InsightFlow AI.
@@ -143,6 +350,8 @@ provided sources.
 ---------------- SOURCE CONTEXT ----------------
 
 {state["context"]}
+
+{research_section}
 
 ---------------- REVISION ----------------
 
@@ -234,6 +443,19 @@ are unsupported, inaccurate, or need revision.
         "fact_check_result": fact_check_result,
         "fact_check_feedback": feedback,
     }
+    
+def route_after_retriever(
+    state: GenerationState,
+) -> str:
+    workflow = state.get(
+        "workflow",
+        "generation",
+    )
+
+    if workflow == "research":
+        return "research"
+
+    return "writer"
     
 def route_after_fact_check(
     state: GenerationState,
