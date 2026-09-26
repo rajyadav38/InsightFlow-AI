@@ -9,23 +9,22 @@ from app.agents.nodes import (
     research_node,
     retriever_node,
     route_after_fact_check,
-    route_after_supervisor,
     route_after_retriever,
+    route_after_supervisor,
     supervisor_node,
     writer_node,
 )
+
 from app.agents.state import GenerationState
 
 
 def build_generation_graph():
 
-    graph = StateGraph(
-        GenerationState
-    )
+    graph = StateGraph(GenerationState)
 
-    # -----------------------------------------
-    # Nodes
-    # -----------------------------------------
+    # -----------------------------
+    # ADD NODES
+    # -----------------------------
 
     graph.add_node(
         "supervisor",
@@ -36,7 +35,7 @@ def build_generation_graph():
         "retriever",
         retriever_node,
     )
-    
+
     graph.add_node(
         "research",
         research_node,
@@ -52,14 +51,18 @@ def build_generation_graph():
         fact_checker_node,
     )
 
-    # -----------------------------------------
-    # Edges
-    # -----------------------------------------
+    # -----------------------------
+    # START
+    # -----------------------------
 
     graph.add_edge(
         START,
         "supervisor",
     )
+
+    # -----------------------------
+    # SUPERVISOR ROUTING
+    # -----------------------------
 
     graph.add_conditional_edges(
         "supervisor",
@@ -70,26 +73,42 @@ def build_generation_graph():
             "fact_check": "retriever",
         },
     )
-    
+
+    # -----------------------------
+    # RETRIEVER ROUTING
+    # -----------------------------
+
+    graph.add_conditional_edges(
+        "retriever",
+        route_after_retriever,
+        {
+            "research": "research",
+            "fact_check": "fact_checker",
+            "writer": "writer",
+        },
+    )
+
+    # -----------------------------
+    # RESEARCH → WRITER
+    # -----------------------------
 
     graph.add_edge(
         "research",
         "writer",
     )
 
+    # -----------------------------
+    # WRITER → FACT CHECKER
+    # -----------------------------
+
     graph.add_edge(
         "writer",
         "fact_checker",
     )
-    
-    graph.add_conditional_edges(
-        "retriever",
-        route_after_retriever,
-        {
-            "research": "research",
-            "writer": "writer",
-        },
-    )
+
+    # -----------------------------
+    # FACT CHECKER ROUTING
+    # -----------------------------
 
     graph.add_conditional_edges(
         "fact_checker",
@@ -98,7 +117,7 @@ def build_generation_graph():
             "revise": "writer",
             "end": END,
         },
-    )   
+    )
 
     return graph.compile()
 

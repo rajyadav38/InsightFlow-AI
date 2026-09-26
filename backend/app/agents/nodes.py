@@ -376,72 +376,113 @@ Return ONLY the final content.
 def fact_checker_node(
     state: GenerationState,
 ) -> GenerationState:
-    """
-    Check whether generated content is supported
-    by the retrieved source context.
-    """
 
     generated_content = state.get(
         "generated_content",
         "",
     )
 
-    if not generated_content:
-        return {
-            **state,
-            "fact_check_result": "NO_CONTENT",
-            "fact_check_feedback": "",
-        }
+    workflow = state.get(
+        "workflow",
+        "generation",
+    )
+
+    # --------------------------------
+    # Determine what needs checking
+    # --------------------------------
+
+    if workflow == "fact_check":
+        content_to_check = state.get(
+            "topic",
+            "",
+        )
+
+        if not content_to_check:
+            return {
+                **state,
+                "fact_check_result": "NO_CONTENT",
+                "fact_check_feedback": "",
+            }
+
+        check_type = "user's claim"
+
+    else:
+        content_to_check = generated_content
+
+        if not content_to_check:
+            return {
+                **state,
+                "fact_check_result": "NO_CONTENT",
+                "fact_check_feedback": "",
+            }
+
+        check_type = "generated content"
+
+    # --------------------------------
+    # Fact-check prompt
+    # --------------------------------
 
     prompt = f"""
 You are the Fact Checker Agent for InsightFlow AI.
 
-Check the generated content against ONLY the
-provided source context.
+Your task is to verify the {check_type} using ONLY
+the provided source context.
 
 Do not use outside knowledge.
 
-Determine whether the factual claims in the
-generated content are supported by the sources.
+Determine whether the factual claims are supported
+by the provided sources.
+
+If the sources support the claim, return PASS.
+
+If the sources do not support the claim, return FAIL.
 
 Return your response in exactly this format:
 
 RESULT: PASS
 
-FEEDBACK: The content is fully supported by
-the provided sources.
+FEEDBACK: <Explain briefly why the claim is supported
+by the provided sources.>
 
 OR:
 
 RESULT: FAIL
 
-FEEDBACK: Explain specifically which claims
-are unsupported, inaccurate, or need revision.
+FEEDBACK: <Explain specifically which claim is not
+supported by the provided sources.>
 
 ---------------- SOURCE CONTEXT ----------------
 
-{state["context"]}
+{state.get("context", "")}
 
----------------- GENERATED CONTENT ----------------
+---------------- CONTENT TO CHECK ----------------
 
-{generated_content}
+{content_to_check}
 
 ---------------- END ----------------
 """
 
-    result = generate_text(prompt).strip()
+    result = generate_text(
+        prompt
+    ).strip()
+
+    # --------------------------------
+    # Parse result
+    # --------------------------------
 
     if "RESULT: PASS" in result:
         fact_check_result = "PASS"
-    else:
+
+    elif "RESULT: FAIL" in result:
         fact_check_result = "FAIL"
 
-    feedback = result
+    else:
+        fact_check_result = "FAIL"
 
     return {
         **state,
         "fact_check_result": fact_check_result,
-        "fact_check_feedback": feedback,
+        "fact_check_feedback": result,
     }
     
 def route_after_retriever(
@@ -454,6 +495,9 @@ def route_after_retriever(
 
     if workflow == "research":
         return "research"
+
+    if workflow == "fact_check":
+        return "fact_check"
 
     return "writer"
     
