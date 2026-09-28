@@ -1,7 +1,6 @@
 import {
   LayoutDashboard,
   FolderKanban,
-  MessageSquare,
   FileText,
   Sparkles,
   Search,
@@ -21,11 +20,6 @@ const navigation = [
     name: "Projects",
     path: "/projects",
     icon: FolderKanban,
-  },
-  {
-    name: "AI Chat",
-    path: "/chat",
-    icon: MessageSquare,
   },
   {
     name: "Sources",

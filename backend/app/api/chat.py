@@ -21,11 +21,12 @@ router = APIRouter(
 # ============================================================
 
 @router.post(
-    "/{project_id}/chat",
+    "/{project_id}/conversations/{conversation_id}/messages",
     response_model=ChatResponse,
 )
 async def chat_with_project(
     project_id: str,
+    conversation_id: str,
     request: ChatRequest,
     current_user=Depends(get_current_user),
 ):
@@ -65,9 +66,7 @@ async def chat_with_project(
     # VALIDATE CONVERSATION ID
     # ========================================================
 
-    if not ObjectId.is_valid(
-        request.conversation_id
-    ):
+    if not ObjectId.is_valid(conversation_id):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid conversation ID",
@@ -79,7 +78,7 @@ async def chat_with_project(
 
     conversation = await database.conversations.find_one(
         {
-            "_id": ObjectId(request.conversation_id),
+            "_id": ObjectId(conversation_id),
             "project_id": project_id,
             "user_id": str(current_user["_id"]),
         }

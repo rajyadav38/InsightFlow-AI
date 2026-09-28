@@ -12,6 +12,7 @@ import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import NotFound from "./pages/NotFound";
 import ProjectWorkspace from "./pages/ProjectWorkspace";
+import AIChat from "./pages/AIChat";
 
 function App() {
   return (
@@ -39,6 +40,7 @@ function App() {
                 element={<ProjectWorkspace />}
               />
             </Route>
+            <Route path="/projects/:projectId/chat" element={<AIChat />} />
           </Route>
 
           <Route path="*" element={<NotFound />} />

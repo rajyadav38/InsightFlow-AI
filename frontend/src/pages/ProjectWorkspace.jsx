@@ -9,7 +9,7 @@ import {
   Library,
   MoreHorizontal,
 } from "lucide-react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import SourcesPanel from "../components/SourcesPanel";
 import api from "../services/api";
 
@@ -43,7 +43,7 @@ const workspaceTabs = [
 
 function ProjectWorkspace() {
   const { projectId } = useParams();
-
+  const navigate = useNavigate();
   const [project, setProject] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -150,7 +150,14 @@ function ProjectWorkspace() {
             return (
               <button
                 key={tab.key}
-                onClick={() => setActiveTab(tab.key)}
+                onClick={() => {
+                  if (tab.key === "chat") {
+                    navigate(`/projects/${projectId}/chat`);
+                    return;
+                  }
+
+                  setActiveTab(tab.key);
+                }}
                 className={`flex shrink-0 items-center gap-2 border-b-2 px-4 py-3 text-sm transition ${
                   isActive
                     ? "border-white text-white"
@@ -168,14 +175,6 @@ function ProjectWorkspace() {
       {/* Workspace Content */}
       <div className="flex-1 p-5 md:p-8">
         {activeTab === "sources" && <SourcesPanel projectId={projectId} />}
-
-        {activeTab === "chat" && (
-          <WorkspacePlaceholder
-            title="AI Chat"
-            description="Ask questions and chat with the knowledge contained in your project."
-            icon={MessageSquare}
-          />
-        )}
 
         {activeTab === "generate" && (
           <WorkspacePlaceholder
