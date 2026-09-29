@@ -7,7 +7,7 @@ import {
   LoaderCircle,
 } from "lucide-react";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 
 import {
@@ -34,6 +34,7 @@ function AIChat() {
   const [sendingMessage, setSendingMessage] = useState(false);
 
   const [error, setError] = useState("");
+  const messagesEndRef = useRef(null);
 
   // ==========================================
   // LOAD CONVERSATIONS
@@ -67,6 +68,16 @@ function AIChat() {
       loadConversations();
     }
   }, [projectId]);
+
+  // ==========================================
+  // AUTO SCROLL TO LATEST MESSAGE
+  // ==========================================
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({
+      behavior: "smooth",
+    });
+  }, [messages, sendingMessage]);
 
   // ==========================================
   // LOAD MESSAGES WHEN CONVERSATION CHANGES
@@ -389,6 +400,7 @@ function AIChat() {
               {messages.map((message) => (
                 <ChatMessage key={message.id} message={message} />
               ))}
+              <div ref={messagesEndRef} />
 
               {sendingMessage && (
                 <div className="flex items-start gap-3">
