@@ -36,6 +36,9 @@ function AIChat() {
   const [error, setError] = useState("");
   const messagesEndRef = useRef(null);
 
+  const [showNewChatModal, setShowNewChatModal] = useState(false);
+  const [newChatTitle, setNewChatTitle] = useState("");
+
   // ==========================================
   // LOAD CONVERSATIONS
   // ==========================================
@@ -115,17 +118,24 @@ function AIChat() {
   // ==========================================
   // CREATE NEW CONVERSATION
   // ==========================================
-
   const handleCreateConversation = async () => {
     try {
       setError("");
 
-      const conversation = await createConversation(projectId, "New Chat");
+      const title = newChatTitle.trim() || "New Chat";
+
+      const conversation = await createConversation(projectId, title);
 
       setConversations((previous) => [conversation, ...previous]);
 
       setActiveConversation(conversation);
       setMessages([]);
+
+      // Close modal
+      setShowNewChatModal(false);
+
+      // Reset title
+      setNewChatTitle("");
     } catch (error) {
       console.error("Failed to create conversation:", error);
 
@@ -239,7 +249,10 @@ function AIChat() {
           </div>
 
           <button
-            onClick={handleCreateConversation}
+            onClick={() => {
+              setNewChatTitle("");
+              setShowNewChatModal(true);
+            }}
             className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/5 text-slate-400 transition hover:bg-white/10 hover:text-white"
             title="New conversation"
           >
@@ -459,6 +472,73 @@ function AIChat() {
           </p>
         </div>
       </main>
+      {showNewChatModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#0b1020] p-6 shadow-2xl">
+            {/* Header */}
+            <div>
+              <h2 className="text-base font-semibold text-white">
+                New Conversation
+              </h2>
+
+              <p className="mt-1 text-sm text-slate-500">
+                Give your conversation a name.
+              </p>
+            </div>
+
+            {/* Input */}
+            <div className="mt-5">
+              <label className="mb-2 block text-xs font-medium text-slate-400">
+                Conversation title
+              </label>
+
+              <input
+                type="text"
+                value={newChatTitle}
+                onChange={(event) => setNewChatTitle(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    handleCreateConversation();
+                  }
+
+                  if (event.key === "Escape") {
+                    setShowNewChatModal(false);
+                    setNewChatTitle("");
+                  }
+                }}
+                autoFocus
+                placeholder="e.g. Research Notes"
+                className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5 text-sm text-white outline-none placeholder:text-slate-600 transition focus:border-white/20 focus:bg-white/[0.05]"
+              />
+
+              <p className="mt-2 text-[11px] text-slate-600">
+                Leave empty to use "New Chat".
+              </p>
+            </div>
+
+            {/* Actions */}
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  setShowNewChatModal(false);
+                  setNewChatTitle("");
+                }}
+                className="rounded-lg px-4 py-2 text-sm text-slate-400 transition hover:bg-white/5 hover:text-white"
+              >
+                Cancel
+              </button>
+
+              <button
+                onClick={handleCreateConversation}
+                className="rounded-lg bg-white px-4 py-2 text-sm font-medium text-slate-950 transition hover:bg-slate-200"
+              >
+                Create
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
