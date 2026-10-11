@@ -14,7 +14,9 @@ from app.schemas.conversation import (
 )
 from app.schemas.message import MessageResponse
 
+from datetime import datetime, timezone
 
+from app.schemas.conversation import ConversationRename
 router = APIRouter(
     prefix="/api/projects",
     tags=["Conversations"],
@@ -193,3 +195,164 @@ async def get_conversation_messages(
         serialize_message(message)
         for message in messages
     ]
+    
+
+# ============================================================
+# RENAME CONVERSATION
+# ============================================================
+
+@router.patch(
+    "/{project_id}/conversations/{conversation_id}",
+    response_model=ConversationResponse,
+)
+async def rename_conversation(
+    project_id: str,
+    conversation_id: str,
+    request: ConversationRename,
+    current_user=Depends(get_current_user),
+):
+    if not ObjectId.is_valid(project_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid project ID",
+        )
+
+    if not ObjectId.is_valid(conversation_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid conversation ID",
+        )
+
+    # Verify that the project belongs to the current user
+    project = await database.projects.find_one(
+        {
+            "_id": ObjectId(project_id),
+            "user_id": str(current_user["_id"]),
+        }
+    )
+
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found",
+        )
+
+    # Verify conversation ownership
+    conversation = await database.conversations.find_one(
+        {
+            "_id": ObjectId(conversation_id),
+            "project_id": project_id,
+            "user_id": str(current_user["_id"]),
+        }
+    )
+
+    if not conversation:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Conversation not found",
+        )
+
+    title = request.title.strip()
+
+    if not title:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Conversation title cannot be empty",
+        )
+
+    await database.conversations.update_one(
+        {
+            "_id": ObjectId(conversation_id),
+            "project_id": project_id,
+            "user_id": str(current_user["_id"]),
+        },
+        {
+            "$set": {
+                "title": title,
+                "updated_at": datetime.now(timezone.utc),
+            }
+        },
+    )
+
+    updated_conversation = await database.conversations.find_one(
+        {
+            "_id": ObjectId(conversation_id),
+            "project_id": project_id,
+            "user_id": str(current_user["_id"]),
+        }
+    )
+
+    return serialize_conversation(updated_conversation)
+
+
+# ============================================================
+# DELETE CONVERSATION
+# ============================================================
+
+@router.delete(
+    "/{project_id}/conversations/{conversation_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_conversation(
+    project_id: str,
+    conversation_id: str,
+    current_user=Depends(get_current_user),
+):
+    if not ObjectId.is_valid(project_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid project ID",
+        )
+
+    if not ObjectId.is_valid(conversation_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid conversation ID",
+        )
+
+    # Verify project ownership
+    project = await database.projects.find_one(
+        {
+            "_id": ObjectId(project_id),
+            "user_id": str(current_user["_id"]),
+        }
+    )
+
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found",
+        )
+
+    # Verify conversation ownership
+    conversation = await database.conversations.find_one(
+        {
+            "_id": ObjectId(conversation_id),
+            "project_id": project_id,
+            "user_id": str(current_user["_id"]),
+        }
+    )
+
+    if not conversation:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Conversation not found",
+        )
+
+    # Delete messages belonging to this conversation
+    await database.messages.delete_many(
+        {
+            "conversation_id": conversation_id,
+        }
+    )
+
+    # Delete the conversation
+    await database.conversations.delete_one(
+        {
+            "_id": ObjectId(conversation_id),
+            "project_id": project_id,
+            "user_id": str(current_user["_id"]),
+        }
+    )
+
+    return None

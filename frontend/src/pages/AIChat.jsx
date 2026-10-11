@@ -5,6 +5,10 @@ import {
   MessageSquare,
   Sparkles,
   LoaderCircle,
+  MoreHorizontal,
+  Pencil,
+  Trash2,
+  X,
 } from "lucide-react";
 
 import { useEffect, useRef, useState } from "react";
@@ -15,6 +19,8 @@ import {
   getConversations,
   getConversationMessages,
   sendMessage,
+  renameConversation,
+  deleteConversation,
 } from "../services/chatService";
 
 function AIChat() {
@@ -38,6 +44,17 @@ function AIChat() {
 
   const [showNewChatModal, setShowNewChatModal] = useState(false);
   const [newChatTitle, setNewChatTitle] = useState("");
+  const [openMenuId, setOpenMenuId] = useState(null);
+
+  const [showRenameModal, setShowRenameModal] = useState(false);
+  const [renameTarget, setRenameTarget] = useState(null);
+  const [renameTitle, setRenameTitle] = useState("");
+
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+
+  const [savingTitle, setSavingTitle] = useState(false);
+  const [deletingConversation, setDeletingConversation] = useState(false);
 
   // ==========================================
   // LOAD CONVERSATIONS
@@ -142,6 +159,102 @@ function AIChat() {
       setError(
         error.response?.data?.detail || "Failed to create conversation.",
       );
+    }
+  };
+
+  // ==========================================
+  // RENAME CONVERSATION
+  // ==========================================
+
+  const handleRenameConversation = async () => {
+    const title = renameTitle.trim();
+
+    if (!title) {
+      setError("Conversation title cannot be empty.");
+      return;
+    }
+
+    if (!renameTarget?.id || savingTitle) {
+      return;
+    }
+
+    try {
+      setSavingTitle(true);
+      setError("");
+
+      const updatedConversation = await renameConversation(
+        projectId,
+        renameTarget.id,
+        title,
+      );
+
+      setConversations((previous) =>
+        previous.map((conversation) =>
+          conversation.id === renameTarget.id
+            ? { ...conversation, ...updatedConversation }
+            : conversation,
+        ),
+      );
+
+      setActiveConversation((previous) =>
+        previous?.id === renameTarget.id
+          ? { ...previous, ...updatedConversation }
+          : previous,
+      );
+
+      setShowRenameModal(false);
+      setRenameTarget(null);
+      setRenameTitle("");
+    } catch (error) {
+      console.error("Failed to rename conversation:", error);
+
+      setError(
+        error.response?.data?.detail || "Failed to rename conversation.",
+      );
+    } finally {
+      setSavingTitle(false);
+    }
+  };
+
+  // ==========================================
+  // DELETE CONVERSATION
+  // ==========================================
+
+  const handleDeleteConversation = async () => {
+    if (!deleteTarget?.id || deletingConversation) {
+      return;
+    }
+
+    try {
+      setDeletingConversation(true);
+      setError("");
+
+      await deleteConversation(projectId, deleteTarget.id);
+
+      const remainingConversations = conversations.filter(
+        (conversation) => conversation.id !== deleteTarget.id,
+      );
+
+      setConversations(remainingConversations);
+
+      if (activeConversation?.id === deleteTarget.id) {
+        const nextConversation = remainingConversations[0] || null;
+
+        setActiveConversation(nextConversation);
+        setMessages([]);
+      }
+
+      setShowDeleteModal(false);
+      setDeleteTarget(null);
+      setOpenMenuId(null);
+    } catch (error) {
+      console.error("Failed to delete conversation:", error);
+
+      setError(
+        error.response?.data?.detail || "Failed to delete conversation.",
+      );
+    } finally {
+      setDeletingConversation(false);
     }
   };
 
@@ -289,27 +402,88 @@ function AIChat() {
           ) : (
             <div className="space-y-1">
               {conversations.map((conversation) => (
-                <button
+                <div
                   key={conversation.id}
-                  onClick={() => setActiveConversation(conversation)}
-                  className={`w-full rounded-lg px-3 py-3 text-left transition ${
+                  className={`group relative rounded-xl transition ${
                     activeConversation?.id === conversation.id
-                      ? "bg-white/10 text-white"
-                      : "text-slate-400 hover:bg-white/5 hover:text-slate-200"
+                      ? "bg-white/10"
+                      : "hover:bg-white/[0.04]"
                   }`}
                 >
-                  <div className="flex items-center gap-3">
-                    <MessageSquare size={16} />
+                  <button
+                    onClick={() => {
+                      setActiveConversation(conversation);
+                      setOpenMenuId(null);
+                    }}
+                    className={`w-full rounded-xl px-3 py-3 pr-10 text-left transition ${
+                      activeConversation?.id === conversation.id
+                        ? "text-white"
+                        : "text-slate-400 hover:text-slate-200"
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <MessageSquare size={16} className="shrink-0" />
 
-                    <div className="min-w-0">
-                      <p className="truncate text-sm">{conversation.title}</p>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm">{conversation.title}</p>
 
-                      <p className="mt-1 text-[11px] text-slate-600">
-                        {new Date(conversation.updated_at).toLocaleDateString()}
-                      </p>
+                        <p className="mt-1 text-[11px] text-slate-600">
+                          {new Date(
+                            conversation.updated_at,
+                          ).toLocaleDateString()}
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                </button>
+                  </button>
+
+                  {/* Three-dot menu */}
+                  <button
+                    onClick={(event) => {
+                      event.stopPropagation();
+
+                      setOpenMenuId((previous) =>
+                        previous === conversation.id ? null : conversation.id,
+                      );
+                    }}
+                    className="absolute right-2 top-3 flex h-7 w-7 items-center justify-center rounded-md text-slate-500 opacity-100 transition hover:bg-white/10 hover:text-white sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100"
+                    title="Conversation options"
+                    aria-label={`Options for ${conversation.title}`}
+                  >
+                    <MoreHorizontal size={17} />
+                  </button>
+
+                  {/* Dropdown menu */}
+                  {openMenuId === conversation.id && (
+                    <div className="absolute right-2 top-11 z-30 w-40 rounded-xl border border-white/10 bg-[#111827] p-1.5 shadow-xl">
+                      <button
+                        onClick={() => {
+                          setRenameTarget(conversation);
+                          setRenameTitle(conversation.title);
+                          setShowRenameModal(true);
+                          setOpenMenuId(null);
+                          setError("");
+                        }}
+                        className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-slate-300 transition hover:bg-white/10 hover:text-white"
+                      >
+                        <Pencil size={14} />
+                        Rename
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          setDeleteTarget(conversation);
+                          setShowDeleteModal(true);
+                          setOpenMenuId(null);
+                          setError("");
+                        }}
+                        className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-red-400 transition hover:bg-red-500/10"
+                      >
+                        <Trash2 size={14} />
+                        Delete
+                      </button>
+                    </div>
+                  )}
+                </div>
               ))}
             </div>
           )}
@@ -534,6 +708,141 @@ function AIChat() {
                 className="rounded-lg bg-white px-4 py-2 text-sm font-medium text-slate-950 transition hover:bg-slate-200"
               >
                 Create
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* RENAME CONVERSATION MODAL */}
+      {showRenameModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !savingTitle) {
+              setShowRenameModal(false);
+              setRenameTarget(null);
+            }
+          }}
+        >
+          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#0b1020] p-6 shadow-2xl">
+            <div className="flex items-start justify-between">
+              <div>
+                <h2 className="text-base font-semibold text-white">
+                  Rename Conversation
+                </h2>
+
+                <p className="mt-1 text-sm text-slate-500">
+                  Choose a new name for this conversation.
+                </p>
+              </div>
+
+              <button
+                onClick={() => {
+                  setShowRenameModal(false);
+                  setRenameTarget(null);
+                }}
+                disabled={savingTitle}
+                className="rounded-lg p-1 text-slate-500 transition hover:bg-white/10 hover:text-white"
+                aria-label="Close rename dialog"
+              >
+                <X size={17} />
+              </button>
+            </div>
+
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                handleRenameConversation();
+              }}
+            >
+              <input
+                type="text"
+                value={renameTitle}
+                onChange={(event) => setRenameTitle(event.target.value)}
+                maxLength={100}
+                autoFocus
+                placeholder="Conversation title"
+                disabled={savingTitle}
+                className="mt-5 w-full rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5 text-sm text-white outline-none placeholder:text-slate-600 focus:border-white/20"
+              />
+
+              <div className="mt-6 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowRenameModal(false);
+                    setRenameTarget(null);
+                  }}
+                  disabled={savingTitle}
+                  className="rounded-lg px-4 py-2 text-sm text-slate-400 transition hover:bg-white/5 hover:text-white disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="submit"
+                  disabled={savingTitle || !renameTitle.trim()}
+                  className="flex items-center gap-2 rounded-lg bg-white px-4 py-2 text-sm font-medium text-slate-950 transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {savingTitle && (
+                    <LoaderCircle size={14} className="animate-spin" />
+                  )}
+                  Save changes
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {/* DELETE CONVERSATION MODAL */}
+      {showDeleteModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !deletingConversation) {
+              setShowDeleteModal(false);
+              setDeleteTarget(null);
+            }
+          }}
+        >
+          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#0b1020] p-6 shadow-2xl">
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-red-500/10">
+              <Trash2 size={20} className="text-red-400" />
+            </div>
+
+            <h2 className="mt-4 text-base font-semibold text-white">
+              Delete conversation?
+            </h2>
+
+            <p className="mt-2 text-sm leading-6 text-slate-400">
+              Are you sure you want to delete{" "}
+              <span className="font-medium text-white">
+                "{deleteTarget?.title}"
+              </span>
+              ? This will permanently delete the conversation and its messages.
+            </p>
+
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  setShowDeleteModal(false);
+                  setDeleteTarget(null);
+                }}
+                disabled={deletingConversation}
+                className="rounded-lg px-4 py-2 text-sm text-slate-400 transition hover:bg-white/5 hover:text-white disabled:opacity-50"
+              >
+                Cancel
+              </button>
+
+              <button
+                onClick={handleDeleteConversation}
+                disabled={deletingConversation}
+                className="flex items-center gap-2 rounded-lg bg-red-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-400 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {deletingConversation && (
+                  <LoaderCircle size={14} className="animate-spin" />
+                )}
+                Delete
               </button>
             </div>
           </div>

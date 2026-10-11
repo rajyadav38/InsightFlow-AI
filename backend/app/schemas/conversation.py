@@ -2,12 +2,14 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+class ConversationRename(BaseModel):
+    title: str = Field(..., min_length=1, max_length=100)
 
 class ConversationCreate(BaseModel):
     title: str = Field(
         default="New Chat",
         min_length=1,
-        max_length=200,
+        max_length=100,
     )
 
 
