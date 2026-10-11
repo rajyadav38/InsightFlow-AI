@@ -15,7 +15,6 @@ from app.schemas.conversation import (
 from app.schemas.message import MessageResponse
 
 from datetime import datetime, timezone
-
 from app.schemas.conversation import ConversationRename
 router = APIRouter(
     prefix="/api/projects",
