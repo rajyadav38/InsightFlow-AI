@@ -12,7 +12,7 @@ import {
 import { Link, useNavigate, useParams } from "react-router-dom";
 import SourcesPanel from "../components/SourcesPanel";
 import api from "../services/api";
-
+import Generate from "./Generate";
 const workspaceTabs = [
   {
     name: "Sources",
@@ -176,13 +176,7 @@ function ProjectWorkspace() {
       <div className="flex-1 p-5 md:p-8">
         {activeTab === "sources" && <SourcesPanel projectId={projectId} />}
 
-        {activeTab === "generate" && (
-          <WorkspacePlaceholder
-            title="Generate"
-            description="Create tweets, LinkedIn posts, blogs, and newsletters from your sources."
-            icon={Sparkles}
-          />
-        )}
+        {activeTab === "generate" && <Generate />}
 
         {activeTab === "research" && (
           <WorkspacePlaceholder

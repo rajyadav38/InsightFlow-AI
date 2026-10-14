@@ -151,7 +151,6 @@ function SourcesPanel({ projectId }) {
     }
 
     const formData = new FormData();
-
     formData.append("type", urlType);
     formData.append("title", url.trim());
     formData.append("url", url.trim());
@@ -160,7 +159,12 @@ function SourcesPanel({ projectId }) {
       setAddingUrl(true);
       setError("");
 
-      await api.post(`/projects/${projectId}/sources`, formData);
+      const response = await api.post(
+        `/projects/${projectId}/sources`,
+        formData,
+      );
+
+      const newSource = response.data;
 
       setUrl("");
       setUrlType("article");
@@ -168,6 +172,27 @@ function SourcesPanel({ projectId }) {
       setShowAddMenu(false);
 
       await fetchSources();
+
+      // Process the newly added URL.
+      if (newSource?.id) {
+        try {
+          await api.post(
+            `/projects/${projectId}/sources/${newSource.id}/process`,
+          );
+        } catch (processError) {
+          console.error(
+            "URL processing failed:",
+            processError.response?.data || processError,
+          );
+
+          setError(
+            processError.response?.data?.detail ||
+              "The URL was added, but processing failed.",
+          );
+        }
+
+        await fetchSources();
+      }
     } catch (error) {
       console.error("URL ERROR:", error.response?.data);
 

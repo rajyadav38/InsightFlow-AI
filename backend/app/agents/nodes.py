@@ -119,8 +119,7 @@ def retriever_node(
     state: GenerationState,
 ) -> GenerationState:
     """
-    Retrieve relevant information from
-    the project's ChromaDB sources.
+    Retrieve relevant information from the project's ChromaDB sources.
     """
 
     chunks = retrieve_relevant_chunks(
@@ -361,7 +360,6 @@ provided sources.
 
 Return ONLY the final content.
 """
-
     content = generate_text(prompt)
 
     return {
