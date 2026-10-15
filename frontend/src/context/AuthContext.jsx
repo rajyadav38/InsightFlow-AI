@@ -1,5 +1,4 @@
 import { createContext, useContext, useEffect, useState } from "react";
-
 import api from "../services/api";
 
 const AuthContext = createContext(null);
@@ -8,7 +7,6 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Check existing login
   useEffect(() => {
     const token = localStorage.getItem("access_token");
 
@@ -19,37 +17,25 @@ export function AuthProvider({ children }) {
 
     api
       .get("/auth/me")
-      .then((response) => {
-        setUser(response.data);
-      })
+      .then((response) => setUser(response.data))
       .catch(() => {
         localStorage.removeItem("access_token");
         setUser(null);
       })
-      .finally(() => {
-        setLoading(false);
-      });
+      .finally(() => setLoading(false));
   }, []);
 
-  // Login
   const login = async (email, password) => {
-    const response = await api.post("/auth/login", {
-      email,
-      password,
-    });
+    const response = await api.post("/auth/login", { email, password });
 
-    const token = response.data.access_token;
-
-    localStorage.setItem("access_token", token);
+    localStorage.setItem("access_token", response.data.access_token);
 
     const userResponse = await api.get("/auth/me");
-
     setUser(userResponse.data);
 
     return userResponse.data;
   };
 
-  // Signup
   const signup = async (name, email, password) => {
     const response = await api.post("/auth/register", {
       name,
@@ -60,10 +46,12 @@ export function AuthProvider({ children }) {
     return response.data;
   };
 
-  // Logout
+  const updateUser = (updates) => {
+    setUser((current) => (current ? { ...current, ...updates } : current));
+  };
+
   const logout = () => {
     localStorage.removeItem("access_token");
-
     setUser(null);
   };
 
@@ -75,6 +63,7 @@ export function AuthProvider({ children }) {
         login,
         signup,
         logout,
+        updateUser,
         isAuthenticated: !!user,
       }}
     >

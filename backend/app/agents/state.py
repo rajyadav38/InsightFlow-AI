@@ -1,3 +1,4 @@
+
 from typing import TypedDict
 
 
@@ -9,6 +10,7 @@ class GenerationState(TypedDict, total=False):
     topic: str
     tone: str
     instructions: str | None
+    source_ids: list[str] | None
 
     # Supervisor decision
     workflow: str

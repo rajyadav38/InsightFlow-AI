@@ -1,12 +1,15 @@
+
 from app.agents.graph import generation_graph
 from app.services.citation_service import resolve_sources
 
 
 SUPPORTED_TYPES = {
-    "linkedin",
+    "linkedin_post",
+    "linkedin",  # Legacy alias
     "tweet",
     "blog",
     "newsletter",
+    "summary",
 }
 
 
@@ -17,36 +20,35 @@ async def generate_content(
     instructions: str | None,
     project_id: str,
     n_results: int = 5,
+    source_ids: list[str] | None = None,
 ) -> dict:
-
     if content_type not in SUPPORTED_TYPES:
         raise ValueError(
             f"Unsupported content type: {content_type}"
         )
 
     if not topic or not topic.strip():
-        raise ValueError(
-            "Topic cannot be empty"
-        )
+        raise ValueError("Topic cannot be empty")
 
-    # Initial state for LangGraph
+    # Deduplicate IDs while preserving their order.
+    selected_source_ids = list(dict.fromkeys(source_ids or []))
+
     initial_state = {
         "project_id": project_id,
         "content_type": content_type,
         "topic": topic.strip(),
         "tone": tone,
         "instructions": instructions,
+        "source_ids": selected_source_ids or None,
         "revision_count": 0,
         "max_revisions": 2,
     }
 
-    # Run the agentic generation workflow
-    result = generation_graph.invoke(
-        initial_state
-    )
+    result = generation_graph.invoke(initial_state)
 
-    # No relevant source information
-    if not result.get("retrieved_chunks"):
+    chunks = result.get("retrieved_chunks", [])
+
+    if not chunks:
         return {
             "content": None,
             "sources": [],
@@ -54,10 +56,7 @@ async def generate_content(
             "revision_count": 0,
         }
 
-    content = result.get(
-        "generated_content",
-        "",
-    )
+    content = result.get("generated_content", "")
 
     if not content:
         return {
@@ -67,57 +66,43 @@ async def generate_content(
             "revision_count": 0,
         }
 
-    # Resolve ChromaDB source IDs
-    # into MongoDB source metadata
-    chunks = result.get(
-        "retrieved_chunks",
-        [],
-    )
-
-    source_ids = [
+    # Resolve source IDs into MongoDB source metadata.
+    retrieved_source_ids = list(dict.fromkeys(
         chunk["metadata"]["source_id"]
         for chunk in chunks
-    ]
+        if chunk.get("metadata", {}).get("source_id")
+    ))
 
     source_metadata = await resolve_sources(
-        source_ids=source_ids,
+        source_ids=retrieved_source_ids,
         project_id=project_id,
     )
 
     sources = []
 
-    for index, chunk in enumerate(
-        chunks,
-        start=1,
-    ):
-        source_id = chunk["metadata"]["source_id"]
+    for index, chunk in enumerate(chunks, start=1):
+        metadata = chunk.get("metadata", {})
+        source_id = metadata.get("source_id")
 
-        metadata = source_metadata.get(
-            source_id
-        )
+        source_info = source_metadata.get(source_id)
 
-        if not metadata:
+        if not source_info:
             continue
 
-        sources.append(
-            {
-                **metadata,
-                "citation_index": index,
-                "chunk_index": chunk["metadata"]["chunk_index"],
-                "distance": chunk["distance"],
-                "excerpt": chunk["text"],
-            }
-        )
+        sources.append({
+            **source_info,
+            "citation_index": index,
+            "chunk_index": metadata.get("chunk_index"),
+            "distance": chunk.get("distance"),
+            "excerpt": chunk.get("text", ""),
+        })
 
     return {
-    "content": content,
-    "sources": sources,
-    "fact_check_result": result.get(
-        "fact_check_result",
-        "PASS",
-    ),
-    "revision_count": result.get(
-        "revision_count",
-        0,
-    ),
-}
+        "content": content,
+        "sources": sources,
+        "fact_check_result": result.get(
+            "fact_check_result",
+            "PASS",
+        ),
+        "revision_count": result.get("revision_count", 0),
+    }

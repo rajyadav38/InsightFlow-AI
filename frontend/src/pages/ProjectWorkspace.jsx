@@ -6,13 +6,15 @@ import {
   MessageSquare,
   Search,
   Sparkles,
-  Library,
+  Library as LibraryIcon,
   MoreHorizontal,
 } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import SourcesPanel from "../components/SourcesPanel";
 import api from "../services/api";
 import Generate from "./Generate";
+import Research from "./Research";
+import Library from "./Library";
 const workspaceTabs = [
   {
     name: "Sources",
@@ -37,7 +39,7 @@ const workspaceTabs = [
   {
     name: "Library",
     key: "library",
-    icon: Library,
+    icon: LibraryIcon,
   },
 ];
 
@@ -178,21 +180,9 @@ function ProjectWorkspace() {
 
         {activeTab === "generate" && <Generate />}
 
-        {activeTab === "research" && (
-          <WorkspacePlaceholder
-            title="Research"
-            description="Run deeper research workflows across your project sources."
-            icon={Search}
-          />
-        )}
+        {activeTab === "research" && <Research />}
 
-        {activeTab === "library" && (
-          <WorkspacePlaceholder
-            title="Library"
-            description="Access your generated content and previous outputs."
-            icon={Library}
-          />
-        )}
+        {activeTab === "library" && <Library />}
       </div>
     </div>
   );

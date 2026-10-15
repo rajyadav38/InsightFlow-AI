@@ -1,3 +1,4 @@
+
 from datetime import datetime, timezone
 
 from bson import ObjectId
@@ -23,21 +24,48 @@ from app.services.document_processor import (
     process_document,
     sync_processed_document_to_vector_store,
 )
-
 from app.services.url_processor import process_url
-
 from app.services.file_storage import (
     delete_file,
     upload_file,
 )
-
 from app.services.vector_store import has_source_chunks
+from app.services.notification_service import create_notification
 
 
 router = APIRouter(
     prefix="/api/projects/{project_id}/sources",
     tags=["Sources"],
 )
+
+
+# ============================================================
+# HELPER: CREATE NOTIFICATION SAFELY
+# ============================================================
+
+async def notify_safely(
+    user_id: str,
+    title: str,
+    message: str,
+    notification_type: str,
+    project_id: str,
+    source_id: str,
+):
+    """
+    Notification errors must never break source processing.
+    """
+
+    try:
+        await create_notification(
+            user_id=user_id,
+            title=title,
+            message=message,
+            notification_type=notification_type,
+            project_id=project_id,
+            source_id=source_id,
+        )
+    except Exception as exc:
+        print(f"Notification creation failed: {exc}")
 
 
 # ============================================================
@@ -89,18 +117,7 @@ async def create_source(
 ):
     user_id = str(current_user["_id"])
 
-    # ========================================================
-    # VERIFY PROJECT OWNERSHIP
-    # ========================================================
-
-    await get_user_project(
-        project_id,
-        user_id,
-    )
-
-    # ========================================================
-    # ALLOWED SOURCE TYPES
-    # ========================================================
+    await get_user_project(project_id, user_id)
 
     allowed_types = {
         "pdf",
@@ -117,65 +134,39 @@ async def create_source(
             detail="Invalid source type",
         )
 
-    file_types = {
-        "pdf",
-        "docx",
-        "txt",
-    }
+    file_types = {"pdf", "docx", "txt"}
+    web_types = {"blog", "article", "tweet"}
 
-    web_types = {
-        "blog",
-        "article",
-        "tweet",
-    }
-
-    # ========================================================
-    # VALIDATE FILE / URL
-    # ========================================================
-
-    # File sources require a file
     if type in file_types and file is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="File is required for this source type",
         )
 
-    # Web sources require a URL
     if type in web_types and not url:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="URL is required for this source type",
         )
 
-    # Web sources cannot contain files
     if type in web_types and file is not None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="File is not allowed for this source type",
         )
 
-    # File sources cannot contain URLs
     if type in file_types and url:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="URL is not allowed for this source type",
         )
 
-    # ========================================================
-    # GENERATE SOURCE ID
-    # ========================================================
-
     source_id = ObjectId()
-
     filename = None
     storage_path = None
 
-    # ========================================================
-    # UPLOAD FILE TO SUPABASE
-    # ========================================================
-
+    # Upload file to Supabase when applicable.
     if file is not None:
-
         filename = file.filename
 
         if not filename:
@@ -184,17 +175,13 @@ async def create_source(
                 detail="Filename is missing",
             )
 
-        # Get file extension
         if "." not in filename:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="File must have an extension",
             )
 
-        extension = filename.rsplit(
-            ".",
-            1,
-        )[1].lower()
+        extension = filename.rsplit(".", 1)[1].lower()
 
         if extension != type:
             raise HTTPException(
@@ -210,10 +197,6 @@ async def create_source(
                 detail="Uploaded file is empty",
             )
 
-        # ====================================================
-        # SUPABASE STORAGE PATH
-        # ====================================================
-
         storage_path = (
             f"users/{user_id}/"
             f"projects/{project_id}/"
@@ -221,26 +204,18 @@ async def create_source(
         )
 
         try:
-
             upload_file(
                 file_bytes=file_bytes,
                 storage_path=storage_path,
                 content_type=(
-                    file.content_type
-                    or "application/octet-stream"
+                    file.content_type or "application/octet-stream"
                 ),
             )
-
         except Exception as exc:
-
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"File upload failed: {str(exc)}",
             )
-
-    # ========================================================
-    # CREATE MONGODB SOURCE
-    # ========================================================
 
     source_document = create_source_document(
         project_id=project_id,
@@ -252,23 +227,15 @@ async def create_source(
         storage_path=storage_path,
     )
 
-    # Use the same ID as the Supabase filename
+    # Use the same ID as the storage filename.
     source_document["_id"] = source_id
 
     try:
-
-        await database.sources.insert_one(
-            source_document
-        )
-
+        await database.sources.insert_one(source_document)
     except Exception as exc:
-
-        # Roll back Supabase upload
         if storage_path:
-
             try:
                 delete_file(storage_path)
-
             except Exception:
                 pass
 
@@ -277,9 +244,7 @@ async def create_source(
             detail=f"Failed to create source: {str(exc)}",
         )
 
-    return serialize_source(
-        source_document
-    )
+    return serialize_source(source_document)
 
 
 # ============================================================
@@ -296,28 +261,16 @@ async def get_sources(
 ):
     user_id = str(current_user["_id"])
 
-    # ========================================================
-    # VERIFY PROJECT OWNERSHIP
-    # ========================================================
-
-    await get_user_project(
-        project_id,
-        user_id,
-    )
+    await get_user_project(project_id, user_id)
 
     cursor = database.sources.find(
         {
             "project_id": project_id,
             "user_id": user_id,
         }
-    ).sort(
-        "created_at",
-        -1,
-    )
+    ).sort("created_at", -1)
 
-    sources = await cursor.to_list(
-        length=100
-    )
+    sources = await cursor.to_list(length=100)
 
     return [
         serialize_source(source)
@@ -340,28 +293,13 @@ async def process_source(
 ):
     user_id = str(current_user["_id"])
 
-    # ========================================================
-    # VERIFY PROJECT OWNERSHIP
-    # ========================================================
-
-    await get_user_project(
-        project_id,
-        user_id,
-    )
-
-    # ========================================================
-    # VALIDATE SOURCE ID
-    # ========================================================
+    await get_user_project(project_id, user_id)
 
     if not ObjectId.is_valid(source_id):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid source ID",
         )
-
-    # ========================================================
-    # FIND SOURCE
-    # ========================================================
 
     source = await database.sources.find_one(
         {
@@ -377,21 +315,10 @@ async def process_source(
             detail="Source not found",
         )
 
-    # ========================================================
-    # SOURCE TYPES
-    # ========================================================
+    source_title = source.get("title", "Untitled source")
 
-    file_types = {
-        "pdf",
-        "docx",
-        "txt",
-    }
-
-    web_types = {
-        "blog",
-        "article",
-        "tweet",
-    }
+    file_types = {"pdf", "docx", "txt"}
+    web_types = {"blog", "article", "tweet"}
 
     if source["type"] not in file_types | web_types:
         raise HTTPException(
@@ -399,58 +326,34 @@ async def process_source(
             detail="Unsupported source type",
         )
 
-    # ========================================================
-    # VALIDATE STORAGE / URL
-    # ========================================================
+    storage_path = source.get("storage_path")
 
-    storage_path = source.get(
-        "storage_path"
-    )
-
-    if (
-        source["type"] in file_types
-        and not storage_path
-    ):
+    if source["type"] in file_types and not storage_path:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Source does not have a stored file",
         )
 
-    if (
-        source["type"] in web_types
-        and not source.get("url")
-    ):
+    if source["type"] in web_types and not source.get("url"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Source does not have a URL",
         )
 
-    # ========================================================
-    # CHECK EXISTING PROCESSING
-    # ========================================================
+    # --------------------------------------------------------
+    # RECOVER A PROCESSED FILE IF CHROMADB CHUNKS ARE MISSING
+    # --------------------------------------------------------
 
     if (
         source.get("status") == "processed"
         and source["type"] in file_types
     ):
+        chunks_exist = has_source_chunks(source_id=source_id)
 
-        # Check if chunks already exist in ChromaDB
-        chunks_exist = has_source_chunks(
-            source_id=source_id
-        )
-
-        # Everything is already synchronized
         if chunks_exist:
             return serialize_source(source)
 
-        # ====================================================
-        # SOURCE WAS PROCESSED BUT CHROMADB IS MISSING
-        # CHUNKS
-        # ====================================================
-
-        processed_storage_path = source.get(
-            "processed_storage_path"
-        )
+        processed_storage_path = source.get("processed_storage_path")
 
         if not processed_storage_path:
             raise HTTPException(
@@ -462,7 +365,6 @@ async def process_source(
             )
 
         try:
-
             result = sync_processed_document_to_vector_store(
                 processed_storage_path=processed_storage_path,
                 source_id=source_id,
@@ -477,18 +379,39 @@ async def process_source(
                 },
                 {
                     "$set": {
-                        "chunk_count": result[
-                            "chunk_count"
-                        ],
+                        "chunk_count": result["chunk_count"],
                         "status": "processed",
-                        "updated_at": datetime.now(
-                            timezone.utc
-                        ),
+                        "updated_at": datetime.now(timezone.utc),
                     }
                 },
             )
 
         except Exception as exc:
+            await notify_safely(
+                user_id=user_id,
+                title="Source synchronization failed",
+                message=(
+                    f'Could not synchronize "{source_title}" '
+                    "with the knowledge index. Please retry."
+                ),
+                notification_type="error",
+                project_id=project_id,
+                source_id=source_id,
+            )
+
+            await database.sources.update_one(
+                {
+                    "_id": ObjectId(source_id),
+                    "project_id": project_id,
+                    "user_id": user_id,
+                },
+                {
+                    "$set": {
+                        "status": "failed",
+                        "updated_at": datetime.now(timezone.utc),
+                    }
+                },
+            )
 
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -498,6 +421,18 @@ async def process_source(
                 ),
             )
 
+        await notify_safely(
+            user_id=user_id,
+            title="Source processed successfully",
+            message=(
+                f'"{source_title}" is ready to use in '
+                "AI Chat, Research, and Generate."
+            ),
+            notification_type="success",
+            project_id=project_id,
+            source_id=source_id,
+        )
+
         updated_source = await database.sources.find_one(
             {
                 "_id": ObjectId(source_id),
@@ -506,13 +441,11 @@ async def process_source(
             }
         )
 
-        return serialize_source(
-            updated_source
-        )
+        return serialize_source(updated_source)
 
-    # ========================================================
+    # --------------------------------------------------------
     # MARK SOURCE AS PROCESSING
-    # ========================================================
+    # --------------------------------------------------------
 
     await database.sources.update_one(
         {
@@ -523,28 +456,19 @@ async def process_source(
         {
             "$set": {
                 "status": "processing",
-                "updated_at": datetime.now(
-                    timezone.utc
-                ),
+                "updated_at": datetime.now(timezone.utc),
             }
         },
     )
 
-    # ========================================================
-    # PROCESS SOURCE
-    # ========================================================
-
     processed_storage_path = None
 
     try:
-
-        # ====================================================
+        # ----------------------------------------------------
         # FILE SOURCES
-        # ====================================================
+        # ----------------------------------------------------
 
         if source["type"] in file_types:
-
-            # Where extracted text will be stored
             processed_storage_path = (
                 f"users/{user_id}/"
                 f"projects/{project_id}/"
@@ -559,12 +483,11 @@ async def process_source(
                 project_id=project_id,
             )
 
-        # ====================================================
+        # ----------------------------------------------------
         # URL SOURCES
-        # ====================================================
+        # ----------------------------------------------------
 
         elif source["type"] in web_types:
-
             result = process_url(
                 url=source["url"],
                 source_id=source_id,
@@ -572,34 +495,25 @@ async def process_source(
             )
 
         else:
-
             raise ValueError(
                 f"Unsupported source type: {source['type']}"
             )
 
-        # ====================================================
-        # UPDATE MONGODB
-        # ====================================================
+        # ----------------------------------------------------
+        # UPDATE MONGODB AFTER SUCCESS
+        # ----------------------------------------------------
 
         update_data = {
-            "character_count": result[
-                "character_count"
-            ],
-            "chunk_count": result[
-                "chunk_count"
-            ],
+            "character_count": result["character_count"],
+            "chunk_count": result["chunk_count"],
             "status": "processed",
-            "updated_at": datetime.now(
-                timezone.utc
-            ),
+            "updated_at": datetime.now(timezone.utc),
         }
 
-        # Only file sources have processed storage
         if processed_storage_path:
-
-            update_data[
-                "processed_storage_path"
-            ] = processed_storage_path
+            update_data["processed_storage_path"] = (
+                processed_storage_path
+            )
 
         await database.sources.update_one(
             {
@@ -607,16 +521,13 @@ async def process_source(
                 "project_id": project_id,
                 "user_id": user_id,
             },
-            {
-                "$set": update_data
-            },
+            {"$set": update_data},
         )
 
     except Exception as exc:
-
-        # ====================================================
-        # MARK PROCESSING AS FAILED
-        # ====================================================
+        # ----------------------------------------------------
+        # MARK SOURCE AS FAILED
+        # ----------------------------------------------------
 
         await database.sources.update_one(
             {
@@ -627,23 +538,47 @@ async def process_source(
             {
                 "$set": {
                     "status": "failed",
-                    "updated_at": datetime.now(
-                        timezone.utc
-                    ),
+                    "updated_at": datetime.now(timezone.utc),
                 }
             },
         )
 
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=(
-                f"Source processing failed: {str(exc)}"
+        await notify_safely(
+            user_id=user_id,
+            title="Source processing failed",
+            message=(
+                f'Could not process "{source_title}". '
+                "Check the source and try processing it again."
             ),
+            notification_type="error",
+            project_id=project_id,
+            source_id=source_id,
         )
 
-    # ========================================================
-    # GET UPDATED SOURCE
-    # ========================================================
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Source processing failed: {str(exc)}",
+        )
+
+    # --------------------------------------------------------
+    # NOTIFY SUCCESS
+    # --------------------------------------------------------
+
+    await notify_safely(
+        user_id=user_id,
+        title="Source processed successfully",
+        message=(
+            f'"{source_title}" is ready to use in '
+            "AI Chat, Research, and Generate."
+        ),
+        notification_type="success",
+        project_id=project_id,
+        source_id=source_id,
+    )
+
+    # --------------------------------------------------------
+    # RETURN UPDATED SOURCE
+    # --------------------------------------------------------
 
     updated_source = await database.sources.find_one(
         {
@@ -653,9 +588,7 @@ async def process_source(
         }
     )
 
-    return serialize_source(
-        updated_source
-    )
+    return serialize_source(updated_source)
 
 
 # ============================================================
@@ -673,28 +606,13 @@ async def delete_source(
 ):
     user_id = str(current_user["_id"])
 
-    # ========================================================
-    # VERIFY PROJECT OWNERSHIP
-    # ========================================================
-
-    await get_user_project(
-        project_id,
-        user_id,
-    )
-
-    # ========================================================
-    # VALIDATE SOURCE ID
-    # ========================================================
+    await get_user_project(project_id, user_id)
 
     if not ObjectId.is_valid(source_id):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid source ID",
         )
-
-    # ========================================================
-    # FIND SOURCE
-    # ========================================================
 
     source = await database.sources.find_one(
         {
@@ -710,57 +628,29 @@ async def delete_source(
             detail="Source not found",
         )
 
-    # ========================================================
-    # DELETE ORIGINAL FILE
-    # ========================================================
-
-    storage_path = source.get(
-        "storage_path"
-    )
+    # Delete original file.
+    storage_path = source.get("storage_path")
 
     if storage_path:
-
         try:
-
-            delete_file(
-                storage_path
-            )
-
+            delete_file(storage_path)
         except Exception as exc:
-
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=(
-                    f"Failed to delete stored file: {str(exc)}"
-                ),
+                detail=f"Failed to delete stored file: {str(exc)}",
             )
 
-    # ========================================================
-    # DELETE PROCESSED TEXT
-    # ========================================================
-
-    processed_storage_path = source.get(
-        "processed_storage_path"
-    )
+    # Delete processed text when present.
+    processed_storage_path = source.get("processed_storage_path")
 
     if processed_storage_path:
-
         try:
-
-            delete_file(
-                processed_storage_path
-            )
-
+            delete_file(processed_storage_path)
         except Exception:
-
-            # Don't block MongoDB cleanup if
-            # processed text is already missing.
+            # Do not block metadata cleanup if the file is missing.
             pass
 
-    # ========================================================
-    # DELETE MONGODB METADATA
-    # ========================================================
-
+    # Delete MongoDB metadata.
     await database.sources.delete_one(
         {
             "_id": ObjectId(source_id),
@@ -768,3 +658,15 @@ async def delete_source(
             "user_id": user_id,
         }
     )
+
+    # Remove related notifications for this source.
+    try:
+        await database.notifications.delete_many(
+            {
+                "user_id": user_id,
+                "project_id": project_id,
+                "source_id": source_id,
+            }
+        )
+    except Exception as exc:
+        print(f"Failed to clean up source notifications: {exc}")

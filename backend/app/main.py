@@ -9,7 +9,8 @@ from app.api import conversations
 from fastapi import HTTPException
 from app.api import generation
 from app.api import generated
-
+from app.api import notifications
+from app.api import profile
 from app.services.file_storage import upload_file
 
 from app.db.database import (
@@ -53,6 +54,8 @@ app.include_router(chat.router)
 app.include_router(conversations.router)
 app.include_router(generation.router)
 app.include_router(generated.router)
+app.include_router(notifications.router)
+app.include_router(profile.router)
 @app.get("/")
 async def root():
     return {

@@ -9,23 +9,25 @@ class GenerateRequest(BaseModel):
         min_length=1,
         max_length=50,
     )
-
     topic: str = Field(
         ...,
         min_length=1,
         max_length=500,
     )
-
     tone: str = Field(
         default="professional",
         min_length=1,
         max_length=100,
     )
-
     instructions: str | None = Field(
         default=None,
         max_length=2000,
     )
+    source_ids: list[str] | None = Field(
+        default=None,
+        max_length=100,
+    )
+
 
 
 class GeneratedSource(BaseModel):

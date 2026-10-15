@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import {
   Sparkles,
@@ -12,7 +12,12 @@ import {
   MessageSquare,
   Newspaper,
   ShieldCheck,
+  Link as LinkIcon,
+  CheckSquare,
+  Square,
 } from "lucide-react";
+
+import api from "../services/api";
 import { generateContent } from "../services/generationService";
 
 const contentTypes = [
@@ -40,10 +45,69 @@ function Generate() {
   const [tone, setTone] = useState("professional");
   const [instructions, setInstructions] = useState("");
 
+  const [sources, setSources] = useState([]);
+  const [selectedSourceIds, setSelectedSourceIds] = useState([]);
+  const [sourcesLoading, setSourcesLoading] = useState(true);
+  const [sourcesError, setSourcesError] = useState("");
+
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+
+    const fetchSources = async () => {
+      try {
+        setSourcesLoading(true);
+        setSourcesError("");
+
+        const response = await api.get(`/projects/${projectId}/sources`);
+
+        if (active) {
+          setSources(Array.isArray(response.data) ? response.data : []);
+        }
+      } catch (err) {
+        if (active) {
+          setSourcesError(
+            err.response?.data?.detail || "Unable to load project sources.",
+          );
+        }
+      } finally {
+        if (active) setSourcesLoading(false);
+      }
+    };
+
+    if (projectId) fetchSources();
+
+    return () => {
+      active = false;
+    };
+  }, [projectId]);
+
+  const processedSources = sources.filter(
+    (source) => source.status === "processed",
+  );
+
+  const toggleSource = (sourceId) => {
+    setSelectedSourceIds((current) =>
+      current.includes(sourceId)
+        ? current.filter((id) => id !== sourceId)
+        : [...current, sourceId],
+    );
+  };
+
+  const selectAllSources = () => {
+    if (
+      selectedSourceIds.length === processedSources.length &&
+      processedSources.length > 0
+    ) {
+      setSelectedSourceIds([]);
+    } else {
+      setSelectedSourceIds(processedSources.map((source) => source.id));
+    }
+  };
 
   const handleGenerate = async (event) => {
     event.preventDefault();
@@ -57,12 +121,14 @@ function Generate() {
       setLoading(true);
       setError("");
       setResult(null);
+      setCopied(false);
 
       const data = await generateContent(projectId, {
         type,
         topic: topic.trim(),
         tone,
         instructions: instructions.trim() || null,
+        source_ids: selectedSourceIds.length ? selectedSourceIds : null,
       });
 
       setResult(data);
@@ -92,7 +158,6 @@ function Generate() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
-      {/* Header */}
       <div>
         <div className="flex items-center gap-2 text-sm text-violet-400">
           <Sparkles size={16} />
@@ -104,17 +169,17 @@ function Generate() {
         </h2>
 
         <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
-          Turn your project sources into useful content with AI. Your generated
-          content can include source references and fact-checking information.
+          Turn your project sources into useful content with AI, citations, and
+          fact-checking information.
         </p>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[0.85fr_1.15fr]">
-        {/* Generation Form */}
         <form
           onSubmit={handleGenerate}
           className="h-fit space-y-6 rounded-2xl border border-white/10 bg-white/[0.02] p-5 md:p-6"
         >
+          {/* Content type */}
           <div>
             <label className="mb-3 block text-sm font-medium text-slate-200">
               Content type
@@ -144,6 +209,105 @@ function Generate() {
             </div>
           </div>
 
+          {/* Source selector */}
+          <div className="rounded-xl border border-white/10 bg-white/[0.02] p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-medium text-slate-200">
+                  Knowledge sources
+                </h3>
+                <p className="mt-1 text-xs leading-5 text-slate-500">
+                  Choose specific sources or leave them unselected to search the
+                  entire project.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={selectAllSources}
+                disabled={sourcesLoading || processedSources.length === 0}
+                className="shrink-0 text-xs text-violet-400 hover:text-violet-300 disabled:opacity-40"
+              >
+                {selectedSourceIds.length === processedSources.length &&
+                processedSources.length > 0
+                  ? "Clear"
+                  : "Select all"}
+              </button>
+            </div>
+
+            <div className="mt-3 flex items-center gap-2 rounded-lg bg-violet-500/10 px-3 py-2 text-xs text-violet-300">
+              <CheckSquare size={15} />
+              {selectedSourceIds.length
+                ? `${selectedSourceIds.length} source(s) selected`
+                : "Automatic project-wide retrieval"}
+            </div>
+
+            {sourcesLoading ? (
+              <div className="flex items-center gap-2 py-5 text-sm text-slate-500">
+                <LoaderCircle size={16} className="animate-spin" />
+                Loading sources...
+              </div>
+            ) : sourcesError ? (
+              <p className="mt-3 text-sm text-red-300">{sourcesError}</p>
+            ) : processedSources.length === 0 ? (
+              <p className="mt-3 text-sm leading-6 text-slate-500">
+                No processed sources yet. Add and process a document or URL in
+                the Sources tab first.
+              </p>
+            ) : (
+              <div className="mt-3 max-h-56 space-y-2 overflow-y-auto pr-1">
+                {processedSources.map((source) => {
+                  const selected = selectedSourceIds.includes(source.id);
+
+                  return (
+                    <button
+                      key={source.id}
+                      type="button"
+                      onClick={() => toggleSource(source.id)}
+                      aria-pressed={selected}
+                      className={`flex w-full items-start gap-3 rounded-lg border p-3 text-left transition ${
+                        selected
+                          ? "border-violet-400/40 bg-violet-500/10"
+                          : "border-white/10 hover:bg-white/[0.04]"
+                      }`}
+                    >
+                      <span className="mt-0.5 text-violet-300">
+                        {selected ? (
+                          <CheckSquare size={17} />
+                        ) : (
+                          <Square size={17} />
+                        )}
+                      </span>
+
+                      <span className="min-w-0 flex-1">
+                        <span className="block break-words text-sm text-slate-200">
+                          {source.title ||
+                            source.filename ||
+                            source.url ||
+                            "Untitled source"}
+                        </span>
+
+                        <span className="mt-1 flex items-center gap-1.5 text-xs text-slate-500">
+                          {source.type === "article" ||
+                          source.type === "blog" ||
+                          source.type === "tweet" ? (
+                            <LinkIcon size={12} />
+                          ) : (
+                            <FileText size={12} />
+                          )}
+                          {(source.type || "document").toUpperCase()}
+                          {source.chunk_count > 0 &&
+                            ` · ${source.chunk_count} chunks`}
+                        </span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Topic */}
           <div>
             <label
               htmlFor="generation-topic"
@@ -168,6 +332,7 @@ function Generate() {
             </p>
           </div>
 
+          {/* Tone */}
           <div>
             <label
               htmlFor="generation-tone"
@@ -190,6 +355,7 @@ function Generate() {
             </select>
           </div>
 
+          {/* Instructions */}
           <div>
             <label
               htmlFor="generation-instructions"
@@ -206,7 +372,7 @@ function Generate() {
               placeholder="Specify length, audience, structure, or other requirements..."
               maxLength={2000}
               rows={4}
-              className="w-full resize-y rounded-xl border border-white/10 bg-slate-950/60 px-4 py-3 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-violet-400/60"
+              className="w-full resize-y rounded-xl border border-white/10 bg-slate-950/60 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-600 focus:border-violet-400/60"
             />
           </div>
 
@@ -236,12 +402,13 @@ function Generate() {
           </button>
 
           <p className="text-xs leading-5 text-slate-500">
-            Generation uses your project sources. If the backend cannot find
-            relevant source information, it may reject the request.
+            Generation uses only the relevant chunks retrieved from your
+            selected sources, or from the entire project when no sources are
+            selected.
           </p>
         </form>
 
-        {/* Output Panel */}
+        {/* Output panel */}
         <div className="min-h-[420px] rounded-2xl border border-white/10 bg-white/[0.02]">
           {!result && !loading && (
             <div className="flex min-h-[420px] flex-col items-center justify-center px-6 text-center">
@@ -254,8 +421,8 @@ function Generate() {
               </h3>
 
               <p className="mt-2 max-w-sm text-sm leading-6 text-slate-500">
-                Choose a format, describe your topic, and generate content
-                grounded in your project sources.
+                Choose a format, select your sources if needed, and generate
+                content grounded in your project knowledge.
               </p>
             </div>
           )}
