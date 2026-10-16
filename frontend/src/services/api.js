@@ -1,7 +1,7 @@
 import axios from "axios";
 
 const api = axios.create({
-  baseURL: "http://127.0.0.1:8000/api",
+  baseURL: import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000/api",
 });
 
 api.interceptors.request.use(
@@ -12,9 +12,7 @@ api.interceptors.request.use(
       config.headers.Authorization = `Bearer ${token}`;
     }
 
-    // IMPORTANT:
-    // Let the browser/Axios automatically set
-    // multipart/form-data + boundary for FormData.
+    // Let Axios set the multipart boundary for FormData.
     if (config.data instanceof FormData) {
       delete config.headers["Content-Type"];
     } else {

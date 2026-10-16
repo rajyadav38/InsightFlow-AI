@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import api from "../services/api";
 import {
   Bell,
   Search,
@@ -18,6 +19,7 @@ import {
   Trash2,
   Clock3,
   Inbox,
+  FolderKanban,
   ExternalLink,
   X,
   LoaderCircle,
@@ -92,6 +94,12 @@ function Topbar() {
   const [notificationsError, setNotificationsError] = useState("");
   const [notificationActionId, setNotificationActionId] = useState(null);
   const [markingAllRead, setMarkingAllRead] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchLoading, setSearchLoading] = useState(false);
+
+  const searchRef = useRef(null);
 
   const profileRef = useRef(null);
   const notificationRef = useRef(null);
@@ -135,6 +143,9 @@ function Topbar() {
       if (profileRef.current && !profileRef.current.contains(event.target)) {
         setProfileOpen(false);
       }
+      if (searchRef.current && !searchRef.current.contains(event.target)) {
+        setSearchOpen(false);
+      }
 
       if (
         notificationRef.current &&
@@ -159,6 +170,103 @@ function Topbar() {
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, []);
+
+  useEffect(() => {
+    const query = searchQuery.trim();
+
+    if (query.length < 2) {
+      setSearchResults([]);
+      setSearchLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    const timer = setTimeout(async () => {
+      try {
+        setSearchLoading(true);
+
+        const response = await api.get("/projects");
+        const projects = Array.isArray(response.data) ? response.data : [];
+
+        const normalizedQuery = query.toLowerCase();
+
+        const matchingProjects = projects
+          .filter((project) =>
+            (project.name || project.title || "")
+              .toLowerCase()
+              .includes(normalizedQuery),
+          )
+          .slice(0, 5)
+          .map((project) => ({
+            id: project.id,
+            title: project.name || project.title || "Untitled project",
+            projectId: project.id,
+            projectName: project.name || project.title || "Untitled project",
+            kind: "project",
+          }));
+
+        const sourceRequests = projects.slice(0, 10).map(async (project) => {
+          try {
+            const sourceResponse = await api.get(
+              `/projects/${project.id}/sources`,
+            );
+
+            const sources = Array.isArray(sourceResponse.data)
+              ? sourceResponse.data
+              : [];
+
+            return sources
+              .filter((source) =>
+                [source.title, source.filename, source.url]
+                  .filter(Boolean)
+                  .some((value) =>
+                    value.toLowerCase().includes(normalizedQuery),
+                  ),
+              )
+              .slice(0, 5)
+              .map((source) => ({
+                id: source.id,
+                title:
+                  source.title ||
+                  source.filename ||
+                  source.url ||
+                  "Untitled source",
+                projectId: project.id,
+                projectName:
+                  project.name || project.title || "Untitled project",
+                kind: "source",
+              }));
+          } catch {
+            return [];
+          }
+        });
+
+        const sourceGroups = await Promise.all(sourceRequests);
+        const matchingSources = sourceGroups.flat();
+
+        if (!cancelled) {
+          setSearchResults(
+            [...matchingProjects, ...matchingSources].slice(0, 10),
+          );
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.error("Search failed:", error);
+          setSearchResults([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setSearchLoading(false);
+        }
+      }
+    }, 300);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [searchQuery]);
 
   const displayName =
     user?.name ||
@@ -270,7 +378,8 @@ function Topbar() {
     <header className="relative z-30 h-16 shrink-0 border-b border-white/10 bg-slate-950/90 backdrop-blur-xl">
       <div className="flex h-full items-center justify-between gap-3 px-4 md:px-6">
         {/* Search */}
-        <div className="relative w-full max-w-md">
+        {/* Search */}
+        <div className="relative w-full max-w-md" ref={searchRef}>
           <Search
             size={17}
             className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500"
@@ -278,10 +387,81 @@ function Topbar() {
 
           <input
             type="search"
+            value={searchQuery}
+            onChange={(event) => {
+              setSearchQuery(event.target.value);
+              setSearchOpen(true);
+            }}
+            onFocus={() => setSearchOpen(true)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                setSearchOpen(false);
+              }
+
+              if (event.key === "Enter" && searchResults.length > 0) {
+                navigate(`/projects/${searchResults[0].projectId}`);
+                setSearchOpen(false);
+                setSearchQuery("");
+              }
+            }}
             placeholder="Search projects, sources..."
             aria-label="Search projects and sources"
+            aria-expanded={searchOpen}
             className="w-full rounded-xl border border-white/10 bg-white/[0.04] py-2.5 pl-10 pr-4 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-violet-400/50 focus:bg-white/[0.06]"
           />
+
+          {searchOpen && searchQuery.trim().length >= 2 && (
+            <div className="absolute left-0 right-0 top-full z-50 mt-2 overflow-hidden rounded-xl border border-white/10 bg-slate-950 shadow-2xl">
+              {searchLoading ? (
+                <div className="flex items-center gap-2 px-4 py-4 text-sm text-slate-400">
+                  <LoaderCircle size={15} className="animate-spin" />
+                  Searching...
+                </div>
+              ) : searchResults.length === 0 ? (
+                <p className="px-4 py-4 text-sm text-slate-400">
+                  No matching projects or sources found.
+                </p>
+              ) : (
+                <div className="max-h-80 overflow-y-auto p-2">
+                  {searchResults.map((item, index) => (
+                    <button
+                      key={`${item.kind}-${item.projectId}-${item.id}-${index}`}
+                      type="button"
+                      onClick={() => {
+                        navigate(`/projects/${item.projectId}`);
+                        setSearchOpen(false);
+                        setSearchQuery("");
+                      }}
+                      className="flex w-full items-start gap-3 rounded-lg px-3 py-3 text-left transition hover:bg-white/[0.06]"
+                    >
+                      {item.kind === "project" ? (
+                        <FolderKanban
+                          size={17}
+                          className="mt-0.5 shrink-0 text-violet-300"
+                        />
+                      ) : (
+                        <FileText
+                          size={17}
+                          className="mt-0.5 shrink-0 text-blue-300"
+                        />
+                      )}
+
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm text-slate-200">
+                          {item.title}
+                        </span>
+                        <span className="mt-1 block text-xs text-slate-500">
+                          {item.kind === "project"
+                            ? "Project"
+                            : `Source · ${item.projectName}`}
+                        </span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="ml-2 flex shrink-0 items-center gap-1 sm:gap-2">

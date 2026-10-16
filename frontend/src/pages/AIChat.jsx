@@ -13,7 +13,8 @@ import {
 
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
-
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
   createConversation,
   getConversations,
@@ -55,6 +56,17 @@ function AIChat() {
 
   const [savingTitle, setSavingTitle] = useState(false);
   const [deletingConversation, setDeletingConversation] = useState(false);
+
+  const [showCitations, setShowCitations] = useState(() => {
+    try {
+      const settings = JSON.parse(
+        localStorage.getItem("insightflow-settings") || "{}",
+      );
+      return settings.showCitations !== false;
+    } catch {
+      return true;
+    }
+  });
 
   // ==========================================
   // LOAD CONVERSATIONS
@@ -585,7 +597,11 @@ function AIChat() {
           ) : (
             <div className="mx-auto flex w-full max-w-4xl flex-col gap-5 px-6 py-8">
               {messages.map((message) => (
-                <ChatMessage key={message.id} message={message} />
+                <ChatMessage
+                  key={message.id}
+                  message={message}
+                  showCitations={showCitations}
+                />
               ))}
               <div ref={messagesEndRef} />
 
@@ -856,7 +872,7 @@ function AIChat() {
 // MESSAGE COMPONENT
 // ==========================================
 
-function ChatMessage({ message }) {
+function ChatMessage({ message, showCitations = true }) {
   const isUser = message.role === "user";
 
   return (
@@ -878,11 +894,53 @@ function ChatMessage({ message }) {
             : "border border-white/10 bg-white/[0.03] text-slate-300"
         }`}
       >
-        <p className="whitespace-pre-wrap">{message.content}</p>
+        {isUser ? (
+          <p className="whitespace-pre-wrap">{message.content}</p>
+        ) : (
+          <div
+            className="
+      prose prose-invert max-w-none
+      prose-p:my-2 prose-p:leading-7
+      prose-headings:mb-2 prose-headings:mt-5
+      prose-headings:font-semibold prose-headings:text-white
+      prose-strong:font-semibold prose-strong:text-white
+      prose-a:text-blue-400 prose-a:underline
+      prose-li:my-1 prose-ul:my-2 prose-ol:my-2
+      prose-blockquote:border-l-slate-500
+      prose-blockquote:text-slate-400
+      prose-code:rounded prose-code:bg-white/10
+      prose-code:px-1 prose-code:py-0.5
+      prose-code:text-purple-300
+      prose-pre:border prose-pre:border-white/10
+      prose-pre:bg-black/30
+      prose-hr:border-white/10
+      prose-table:border-collapse
+      prose-th:border prose-th:border-white/10
+      prose-th:bg-white/5 prose-th:p-2
+      prose-td:border prose-td:border-white/10
+      prose-td:p-2
+      text-sm leading-7 text-slate-300
+    "
+          >
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              components={{
+                a: ({ node, ...props }) => (
+                  <a {...props} target="_blank" rel="noopener noreferrer" />
+                ),
+                pre: ({ node, ...props }) => (
+                  <pre {...props} className="overflow-x-auto rounded-lg p-3" />
+                ),
+              }}
+            >
+              {message.content || ""}
+            </ReactMarkdown>
+          </div>
+        )}
 
         {/* Sources */}
 
-        {!isUser && message.sources?.length > 0 && (
+        {!isUser && showCitations && message.sources?.length > 0 && (
           <div className="mt-4 border-t border-white/10 pt-3">
             <p className="mb-2 text-xs font-semibold text-slate-400">Sources</p>
 

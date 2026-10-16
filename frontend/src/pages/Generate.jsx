@@ -40,7 +40,33 @@ const tones = [
 function Generate() {
   const { projectId } = useParams();
 
-  const [type, setType] = useState("blog");
+  const [type, setType] = useState(() => {
+    try {
+      const settings = JSON.parse(
+        localStorage.getItem("insightflow-settings") || "{}",
+      );
+
+      const typeMap = {
+        report: "summary",
+        social: "linkedin_post",
+      };
+
+      const savedType =
+        typeMap[settings.defaultContentType] || settings.defaultContentType;
+
+      const supportedTypes = [
+        "blog",
+        "linkedin_post",
+        "tweet",
+        "newsletter",
+        "summary",
+      ];
+
+      return supportedTypes.includes(savedType) ? savedType : "blog";
+    } catch {
+      return "blog";
+    }
+  });
   const [topic, setTopic] = useState("");
   const [tone, setTone] = useState("professional");
   const [instructions, setInstructions] = useState("");

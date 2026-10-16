@@ -13,6 +13,7 @@ import Signup from "./pages/Signup";
 import NotFound from "./pages/NotFound";
 import ProjectWorkspace from "./pages/ProjectWorkspace";
 import AIChat from "./pages/AIChat";
+import Settings from "./pages/Settings";
 import MyAccount from "./pages/MyAccount";
 
 function App() {
@@ -36,6 +37,7 @@ function App() {
 
               <Route path="/projects" element={<Projects />} />
               <Route path="/my-account" element={<MyAccount />} />
+              <Route path="/settings" element={<Settings />} />
 
               <Route
                 path="/projects/:projectId"

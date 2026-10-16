@@ -150,6 +150,8 @@ async def chat_with_project(
             project_id=project_id,
             conversation_history=conversation_history,
             n_results=5,
+            response_style=request.response_style,
+            show_citations=request.show_citations,
         )
 
     except ValueError as error:

@@ -39,11 +39,41 @@ export async function getConversationMessages(projectId, conversationId) {
 // ==========================================
 
 export async function sendMessage(projectId, conversationId, question) {
+  let settings = {
+    responseStyle: "balanced",
+    showCitations: true,
+  };
+
+  try {
+    const savedSettings = localStorage.getItem("insightflow-settings");
+
+    if (savedSettings) {
+      const parsed = JSON.parse(savedSettings);
+
+      settings = {
+        responseStyle: ["concise", "balanced", "detailed"].includes(
+          parsed.responseStyle,
+        )
+          ? parsed.responseStyle
+          : "balanced",
+
+        showCitations:
+          typeof parsed.showCitations === "boolean"
+            ? parsed.showCitations
+            : true,
+      };
+    }
+  } catch (error) {
+    console.error("Unable to read AI preferences:", error);
+  }
+
   const response = await api.post(
     `/projects/${projectId}/conversations/${conversationId}/messages`,
     {
       conversation_id: conversationId,
       question,
+      response_style: settings.responseStyle,
+      show_citations: settings.showCitations,
     },
   );
 

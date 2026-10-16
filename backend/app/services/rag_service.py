@@ -9,6 +9,8 @@ async def answer_question(
     project_id: str,
     conversation_history: list[dict] | None = None,
     n_results: int = 5,
+    response_style: str = "balanced",
+    show_citations: bool = True,
 ) -> dict:
     """
     Answer a user question using documents stored
@@ -131,7 +133,16 @@ Return ONLY the rewritten search query.
         previous_messages = "\n".join(
             conversation_parts
         )
+    response_instructions = {
+        "concise": "Answer briefly, focusing on the most important facts.",
+        "balanced": "Give a clear, well-organized answer with useful detail.",
+        "detailed": "Give a thorough, structured answer with explanations and relevant details.",
+    }
 
+    style_instruction = response_instructions.get(
+        response_style,
+        response_instructions["balanced"],
+    )
     # ========================================================
     # STEP 6: GENERATE ANSWER
     # ========================================================
@@ -152,7 +163,8 @@ If the answer cannot be found in the provided sources,
 clearly say that the information is not available in
 the provided sources.
 
-Keep the answer clear, accurate, and concise.
+Response style:
+{style_instruction}
 
 ---------------- CONVERSATION HISTORY ----------------
 

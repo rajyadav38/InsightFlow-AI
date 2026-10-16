@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
+import os
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.auth import router as auth_router
 from app.api.projects import router as projects_router
@@ -34,12 +35,19 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+# Keep local development working and allow the deployed frontend.
+frontend_origins = [
+    origin.strip()
+    for origin in os.getenv("FRONTEND_URL", "").split(",")
+    if origin.strip()
+]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        *frontend_origins,
     ],
     allow_credentials=True,
     allow_methods=["*"],

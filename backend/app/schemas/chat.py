@@ -6,7 +6,6 @@ from pydantic import BaseModel, Field
 # ============================================================
 
 class ChatRequest(BaseModel):
-
     conversation_id: str
 
     question: str = Field(
@@ -14,6 +13,13 @@ class ChatRequest(BaseModel):
         min_length=1,
         max_length=5000,
     )
+
+    response_style: str = Field(
+        default="balanced",
+        pattern="^(concise|balanced|detailed)$",
+    )
+
+    show_citations: bool = True
 
 
 # ============================================================
