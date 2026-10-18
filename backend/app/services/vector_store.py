@@ -23,9 +23,9 @@ EMBEDDING_DIMENSIONS = 768
 
 
 def get_collection():
-    """Get the InsightFlow document collection."""
+    """Get the collection for Gemini embeddings."""
     return chroma_client.get_or_create_collection(
-        name="insightflow_documents",
+        name="insightflow_gemini_768",
         metadata={"hnsw:space": "cosine"},
     )
 
