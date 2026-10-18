@@ -5,7 +5,7 @@ import chromadb
 # CHROMADB CLIENT
 # ============================================================
 
-chroma_client = chromadb.PersistentClient(path="./chroma_data")
+chroma_client = chromadb.CloudClient()
 
 
 # ============================================================
